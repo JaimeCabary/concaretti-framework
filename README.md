@@ -137,9 +137,11 @@ The launcher initializes the in-process FastAPI backend on `127.0.0.1:8000`, loa
      \x72\x6d -rf /
      ```
    - Observe how the 9-stage normalizer simplifies the payload to `rm -rf /`, identifies the deny-list rule, and outputs a deterministic refusal before any model sees it.
-3. **Adaptive Zero-Scroll Productivity Surfaces:**
-   - Open **Calendar & Timetable** or **Diary & Notepad**.
-   - Notice that both interfaces fit 100% within the viewport height without outer page scrolling. In the Calendar, outer scrolling activates only when toggling **"Expand Full Year"** to survey all 12 pressed months.
+3. **Human-Agent Loop Oversight (HALO Gate):**
+   - In the Council Cockpit or Email Agent, trigger an irreversible outbound action.
+   - Observe the orchestrator automatically suspend execution and route the request to the fail-closed HALO gate, presenting the operator with approval options before any external dispatch occurs.
+4. **Rule 0 Privacy Boundary & Memory Isolation:**
+   - In the Council Cockpit, observe that sensitive personal or therapeutic context is strictly partitioned: while stored in the chronological session log for conversational coherence, **Rule 0** deterministically prevents it from ever being indexed into persistent vector embeddings.
 
 ---
 
