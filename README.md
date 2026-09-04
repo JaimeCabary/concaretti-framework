@@ -108,44 +108,7 @@ The runtime was systematically evaluated across **11 distinct control surfaces**
 
 ---
 
-## 4. Evaluation Guide for Supervisors & External Examiners
-
-This repository has been structured for immediate, independent verification by academic supervisors and external examiners.
-
-### 4.1 Running the Invariant Verification Suite (159 Tests)
-- **Windows (1-Click):** Double-click `RUN_INVARIANT_TESTS.bat`.
-- **Command Line:**
-  ```bash
-  uv run --project backend pytest -v
-  ```
-*Expected Result:* **159 passed in ~6.7 seconds (0 failures)**.
-
-### 4.2 Launching the Native Desktop Application
-- **Windows (1-Click):** Double-click `START_CONCARETTI.bat`.
-- **Command Line:**
-  ```bash
-  uv run --project backend python run_desktop.py
-  ```
-The launcher initializes the in-process FastAPI backend on `127.0.0.1:8000`, loads the operator identity from `user_profile.json`, and opens the native Windows desktop application shell with persistent storage.
-
-### 4.3 Navigating Key Interactive Demonstrations
-1. **The In-App Documentation Hub:** Click **Documentation** in the sidebar footer to access an interactive reference mapping system components directly to the thesis manuscript.
-2. **Live Security Policy Defense (`.conca Rules`):**
-   - Navigate to the **.conca Rules** tab.
-   - Under the *Simulator* box, submit an obfuscated injection command:
-     ```bash
-     \x72\x6d -rf /
-     ```
-   - Observe how the 9-stage normalizer simplifies the payload to `rm -rf /`, identifies the deny-list rule, and outputs a deterministic refusal before any model sees it.
-3. **Human-Agent Loop Oversight (HALO Gate):**
-   - In the Council Cockpit or Email Agent, trigger an irreversible outbound action.
-   - Observe the orchestrator automatically suspend execution and route the request to the fail-closed HALO gate, presenting the operator with approval options before any external dispatch occurs.
-4. **Rule 0 Privacy Boundary & Memory Isolation:**
-   - In the Council Cockpit, observe that sensitive personal or therapeutic context is strictly partitioned: while stored in the chronological session log for conversational coherence, **Rule 0** deterministically prevents it from ever being indexed into persistent vector embeddings.
-
----
-
-## 5. Repository Structure
+## 4. Repository Structure
 
 ```
 concaretti-framework/
@@ -179,7 +142,7 @@ concaretti-framework/
 
 ---
 
-## 6. Academic Declaration & Attribution
+## 5. Academic Declaration & Attribution
 
 This software repository and its accompanying research manuscript were developed within the **Department of Software Engineering, School of Information and Communication Technology (SICT), Federal University of Technology Owerri (FUTO)**.
 
