@@ -383,39 +383,49 @@ async def list_emails(payload: dict, ctx: ExecContext) -> dict:
                 messages=[],
                 connected=False,
             )
-        listing = (
-            service.users()
-            .messages()
-            .list(userId="me", maxResults=max_results, labelIds=["INBOX"])
-            .execute()
-        )
-        out = []
-        for ref in listing.get("messages", []):
-            msg = (
+        try:
+            listing = (
                 service.users()
                 .messages()
-                .get(
-                    userId="me",
-                    id=ref["id"],
-                    format="metadata",
-                    metadataHeaders=["From", "Subject", "Date"],
-                )
+                .list(userId="me", maxResults=max_results, labelIds=["INBOX"])
                 .execute()
             )
-            headers = {
-                h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])
-            }
-            out.append(
-                {
-                    "id": ref["id"],
-                    "from": headers.get("From", ""),
-                    "subject": headers.get("Subject", "(no subject)"),
-                    "date": headers.get("Date", ""),
-                    "snippet": msg.get("snippet", "")[:240],
-                    "unread": "UNREAD" in msg.get("labelIds", []),
-                }
+            out = []
+            for ref in listing.get("messages", []):
+                try:
+                    msg = (
+                        service.users()
+                        .messages()
+                        .get(
+                            userId="me",
+                            id=ref["id"],
+                            format="metadata",
+                            metadataHeaders=["From", "Subject", "Date"],
+                        )
+                        .execute()
+                    )
+                    headers = {
+                        h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])
+                    }
+                    out.append(
+                        {
+                            "id": ref["id"],
+                            "from": headers.get("From", ""),
+                            "subject": headers.get("Subject", "(no subject)"),
+                            "date": headers.get("Date", ""),
+                            "snippet": msg.get("snippet", "")[:240],
+                            "unread": "UNREAD" in msg.get("labelIds", []),
+                        }
+                    )
+                except Exception:
+                    continue
+            return _ok(f"{len(out)} inbox messages", messages=out, connected=True)
+        except Exception as err:
+            return _fail(
+                f"Gmail connection error: {err}",
+                messages=[],
+                connected=False,
             )
-        return _ok(f"{len(out)} inbox messages", messages=out, connected=True)
 
     return await asyncio.to_thread(_work)
 
@@ -455,14 +465,17 @@ async def send_email(payload: dict, ctx: ExecContext) -> dict:
                 "configure Google OAuth to complete delivery.",
                 delivered=False,
             )
-        mime = MIMEText(body)
-        mime["to"] = to
-        mime["subject"] = subject or "(no subject)"
-        raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
-        sent = (
-            service.users().messages().send(userId="me", body={"raw": raw}).execute()
-        )
-        return _ok(f"Email delivered to {to}", message_id=sent.get("id"), delivered=True)
+        try:
+            mime = MIMEText(body)
+            mime["to"] = to
+            mime["subject"] = subject or "(no subject)"
+            raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
+            sent = (
+                service.users().messages().send(userId="me", body={"raw": raw}).execute()
+            )
+            return _ok(f"Email delivered to {to}", message_id=sent.get("id"), delivered=True)
+        except Exception as err:
+            return _fail(f"Gmail delivery error: {err}", delivered=False)
 
     result = await asyncio.to_thread(_work)
     ctx.store.log_audit(

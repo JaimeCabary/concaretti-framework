@@ -868,7 +868,15 @@ async def email_list(max_results: int = 12, role: Role = Depends(current_role)) 
         store=store(),
         broker=broker(),
     )
-    return await list_emails({"max_results": max_results}, ctx)
+    try:
+        return await list_emails({"max_results": max_results}, ctx)
+    except Exception as err:
+        return {
+            "ok": False,
+            "connected": False,
+            "messages": [],
+            "error": f"Failed fetching emails: {err}",
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
