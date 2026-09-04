@@ -1,15 +1,9 @@
 /**
- * Public screen — chat-first, single column.
+ * Public screen — unified multi-agent operating interface with public guest scoping.
  *
- * The brief's constraints, and why each one holds:
- *   · no agent dock, no DAG — a visitor has no plan to inspect
- *   · a thinking indicator rather than a reasoning trace
- *   · no HALO surface, because `.conca` grants public the research agent only
- *     and nothing it can dispatch trips a gate
- *   · artifacts appear only if a run produced one
- *
- * The answer is drawn from `done`, with activity as the fallback while a run is
- * in flight — the same events the other screens use, filtered down.
+ * Adopts the identical side panel, session history, fixed header, and bottom designation
+ * profile as the Staff and Student screens, ensuring seamless visual consistency
+ * across all roles.
  */
 
 import { useState } from "react";
@@ -20,17 +14,22 @@ import { CalendarScreen } from "../components/CalendarScreen";
 import { EmailHub } from "../components/EmailHub";
 import { WorkDiary } from "../components/WorkDiary";
 import { TelecomInbox } from "../components/TelecomInbox";
-import { TabBar } from "../components/ui";
+import { DocsPanel } from "../components/DocsPanel";
+import { Sidebar, type RailItem } from "../components/Sidebar";
+import { RailProfile } from "../components/RailProfile";
+import { RailSessions } from "../components/RailSessions";
+import { Result } from "../components/ui";
 import { useAgentStore } from "../store/agentStore";
 
-type Tab = "work" | "calendar" | "email" | "diary" | "telecom";
+type Tab = "ops" | "calendar" | "diary" | "email" | "telecom" | "help";
 
-const TABS: ReadonlyArray<{ key: Tab; label: string; agent?: string }> = [
-  { key: "work", label: "Work" },
+const ITEMS: ReadonlyArray<RailItem<Tab>> = [
+  { key: "ops", label: "Council", agent: "research" },
   { key: "calendar", label: "Calendar", agent: "calendar" },
+  { key: "diary", label: "Diary" },
   { key: "email", label: "Email", agent: "email" },
   { key: "telecom", label: "Telecom", agent: "sms" },
-  { key: "diary", label: "Diary" },
+  { key: "help", label: "Documentation", footer: true },
 ];
 
 const SUGGESTIONS = [
@@ -39,127 +38,136 @@ const SUGGESTIONS = [
   "Find recent research on AI safety evaluation",
 ];
 
-function Answer() {
-  const summary = useAgentStore((s) => s.finalSummary);
+function PublicIdle() {
+  const userName = useAgentStore((s) => s.userName);
+  const displayName = userName ? `, ${userName}` : "";
+  const runPrompt = useAgentStore((s) => s.runPrompt);
   const running = useAgentStore((s) => s.running);
-  const events = useAgentStore((s) => s.events);
 
-  if (!summary && !running) return null;
-
-  // Before `done` lands, the most recent activity line is the honest status.
-  const latest = [...events]
-    .reverse()
-    .find((e) => e.type === "activity" && e.message)?.message;
+  const hour = new Date().getHours();
+  let greeting = "Good evening";
+  if (hour < 12) greeting = "Good morning";
+  else if (hour < 17) greeting = "Good afternoon";
 
   return (
-    <article className="panel px-4 py-4 mt-4">
-      {summary ? (
-        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-fg">
-          {summary}
+    <div className="mx-auto w-full max-w-[46rem] pt-[15vh]">
+      <div className="text-center flex flex-col items-center mb-8">
+        <img src="/favicon.png" alt="Logo" className="size-10 mb-4" />
+        <h1 className="type-tagline text-[clamp(28px,4vw,40px)] text-fg tracking-tight">
+          {greeting}{displayName}
+        </h1>
+        <p className="type-mono text-[11px] text-muted tracking-widest mt-1 uppercase">
+          PUBLIC RESEARCH & GUEST ACCESS
         </p>
-      ) : (
-        <p className="text-[13px] text-muted">
-          {typeof latest === "string" ? latest : "Working on it…"}
-        </p>
-      )}
-    </article>
+      </div>
+
+      <div className="w-full space-y-4">
+        <CouncilCockpit
+          placeholder="Ask anything or request academic research…"
+          showTimeline={false}
+          autoFocus
+        />
+
+        <ul className="flex flex-wrap justify-center gap-2 pt-2">
+          {SUGGESTIONS.map((s) => (
+            <li key={s}>
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => void runPrompt(s)}
+                className="type-mono text-[11px] px-3 py-1.5 rounded-full border border-hairline bg-obsidian hover:bg-elevated text-dim hover:text-fg transition-colors cursor-pointer"
+              >
+                {s}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function PublicRun() {
+  return (
+    <div className="flex flex-col h-full w-full">
+      {/* Scrollable Real-Time Content Feed */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-6 pb-6 sm:px-8 lg:px-12">
+        <div className="mx-auto w-full max-w-4xl space-y-6">
+          <Result />
+          <ThoughtStream role="public" />
+          <ArtifactPanel />
+        </div>
+      </div>
+
+      {/* Pinned Bottom Command Bar — Always Accessible */}
+      <div className="shrink-0 border-t-2 border-fg bg-obsidian p-4 shadow-[0px_-4px_10px_rgba(0,0,0,0.04)]">
+        <div className="max-w-4xl mx-auto">
+          <CouncilCockpit
+            placeholder="Send follow-up or ask another research question…"
+            showTimeline={false}
+            autoFocus
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 
 export function PublicScreen() {
   const agents = useAgentStore((s) => s.agents);
-  const runPrompt = useAgentStore((s) => s.runPrompt);
-  const running = useAgentStore((s) => s.running);
   const hasRun = useAgentStore((s) => s.sessionId !== null);
+  const running = useAgentStore((s) => s.running);
+  const clearRun = useAgentStore((s) => s.clearRun);
+  const [tab, setTab] = useState<Tab>("ops");
 
-  const [tab, setTab] = useState<Tab>("work");
+  const visible = ITEMS.filter(
+    (t) => !t.agent || agents.includes(t.agent),
+  );
 
-  // Filter tabs by agents if applicable, but we let public/workspace role see what they have.
-  // Actually, for public we might not have agents in the store if it's strictly public,
-  // but if this acts as the "workspace" role it will have agents granted by the server.
-  const visible = TABS.filter((t) => !t.agent || agents.includes(t.agent));
-
-  
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] bg-void overflow-hidden py-4">
-      {/* If they have other tabs, show the TabBar */}
-      {visible.length > 1 && (
-        <div className="shrink-0 px-4 mb-4">
-          <TabBar tabs={visible} active={tab} onSelect={setTab} />
-        </div>
-      )}
+    <div className="flex h-dvh overflow-hidden bg-void">
+      <Sidebar
+        items={visible}
+        active={tab}
+        onSelect={(key) => {
+          if (key === "ops") clearRun();
+          setTab(key);
+        }}
+        middle={<RailSessions onSelectSession={() => setTab("ops")} />}
+        footer={<RailProfile onNavigate={(t) => setTab(t as Tab)} />}
+      />
 
-      {tab === "work" ? (
-        <div className="flex-1 overflow-hidden flex flex-col w-full max-w-3xl mx-auto h-full">
-          {!hasRun ? (
-            <div className="flex-1 overflow-y-auto space-y-4 px-4 pt-[10vh]">
-              <div className="text-center flex flex-col items-center mb-8">
-                <img src="/favicon.png" alt="Logo" className="size-10 mb-4" />
-                <h1 className="type-tagline text-[clamp(28px,4vw,40px)] text-fg tracking-tight">
-                  Good afternoon, {useAgentStore((s) => s.userName) || "User"}
-                </h1>
-              </div>
-
-              <CouncilCockpit
-                placeholder="Ask anything…"
-                showTimeline={false}
-                autoFocus
-              />
-
-              <ul className="flex flex-wrap justify-center gap-1.5 mt-4">
-                {SUGGESTIONS.map((s) => (
-                  <li key={s}>
-                    <button
-                      type="button"
-                      disabled={running}
-                      onClick={() => void runPrompt(s)}
-                      className="chip transition-colors hover:bg-council-soft cursor-pointer"
-                    >
-                      {s}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+      <main className="min-w-0 flex-1 overflow-hidden flex flex-col">
+        {tab === "ops" ? (
+          hasRun || running ? (
+            <PublicRun />
           ) : (
-            <div className="flex-1 overflow-hidden flex flex-col h-full w-full">
-              {/* Scrollable Real-Time Content Feed */}
-              <div className="flex-1 overflow-y-auto px-4 pt-6 pb-6 space-y-6">
-                <ThoughtStream role="public" />
-                <Answer />
-                <ArtifactPanel compact />
-              </div>
-              
-              {/* Pinned Bottom Command Bar */}
-              <div className="shrink-0 border-t-2 border-fg bg-obsidian p-4 shadow-[0px_-4px_10px_rgba(0,0,0,0.04)]">
-                <div className="max-w-4xl mx-auto">
-                  <CouncilCockpit
-                    placeholder="Send follow-up..."
-                    showTimeline={false}
-                    autoFocus
-                  />
-                </div>
-              </div>
+            <div className="flex-1 overflow-y-auto px-5 pb-20 pt-6 sm:px-8 lg:px-12">
+              <PublicIdle />
             </div>
-          )}
-        </div>
-      ) : tab === "calendar" ? (
-        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
-          <CalendarScreen />
-        </div>
-      ) : tab === "email" ? (
-        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
-          <EmailHub />
-        </div>
-      ) : tab === "telecom" ? (
-        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
-          <TelecomInbox />
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
-          <WorkDiary />
-        </div>
-      )}
+          )
+        ) : tab === "help" ? (
+          <div className="flex-1 overflow-y-auto">
+            <DocsPanel />
+          </div>
+        ) : tab === "calendar" ? (
+          <div className="flex-1 min-h-0 p-3 sm:p-5 flex flex-col overflow-hidden">
+            <CalendarScreen />
+          </div>
+        ) : tab === "diary" ? (
+          <div className="flex-1 min-h-0 p-3 sm:p-5 flex flex-col overflow-hidden">
+            <WorkDiary />
+          </div>
+        ) : tab === "email" ? (
+          <div className="flex-1 overflow-y-auto p-6">
+            <EmailHub />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-6">
+            <TelecomInbox />
+          </div>
+        )}
+      </main>
     </div>
   );
 }

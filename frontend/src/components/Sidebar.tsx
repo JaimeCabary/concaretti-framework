@@ -24,7 +24,7 @@
  * and the thought stream.
  */
 
-import { useState, type ReactNode } from "react";
+import { useState, cloneElement, isValidElement, type ReactNode } from "react";
 import { ConcarettiLogo } from "./ui";
 
 const SW = 1.8;
@@ -260,108 +260,120 @@ export function Sidebar<T extends string>({
     <nav
       role="tablist"
       aria-label="Sections"
-      className={`relative flex shrink-0 flex-col gap-1 pb-4
-        lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto
-        ${open ? "w-[236px] px-3" : "w-[68px] px-2"}`}
+      className={`relative flex shrink-0 flex-col h-dvh overflow-hidden select-none bg-void
+        ${open ? "w-[236px]" : "w-[68px]"}`}
       style={{ borderRight: "var(--border)" }}
     >
-      {/* Header with Logo and Sidebar Toggle Icon */}
-      {open ? (
-        <div className="sticky top-0 z-10 bg-void pt-5 pb-3 mb-6 flex items-center justify-between px-2">
-          <span className="flex items-center gap-2.5">
-            <ConcarettiLogo />
-            <span className="flex flex-col leading-none">
-              <span className="type-display text-[17px]">Concaretti</span>
-              <span className="type-mono text-[9px] text-muted">
-                multi-agent os
+      {/* 1. FIXED TOP HEADER (NEVER SCROLLS) */}
+      <div className={`shrink-0 z-10 bg-void pt-4 pb-2 ${open ? "px-3" : "px-2"}`}>
+        {open ? (
+          <div className="flex items-center justify-between px-1">
+            <span className="flex items-center gap-2.5">
+              <ConcarettiLogo />
+              <span className="flex flex-col leading-none">
+                <span className="type-display text-[17px]">Concaretti</span>
+                <span className="type-mono text-[9px] text-muted">
+                  multi-agent os
+                </span>
               </span>
             </span>
-          </span>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            title="Retract sidebar"
-            aria-label="Retract sidebar"
-            className="grid size-7 place-items-center rounded-lg text-dim transition-colors hover:bg-elevated hover:text-fg"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="size-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.8}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              title="Retract sidebar"
+              aria-label="Retract sidebar"
+              className="grid size-7 place-items-center rounded-lg text-dim transition-colors hover:bg-elevated hover:text-fg"
             >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M9 3v18" />
-              <path d="m14 9-3 3 3 3" />
-            </svg>
-          </button>
-        </div>
-      ) : (
-        <div className="sticky top-0 z-10 bg-void pt-5 pb-3 mb-6 flex justify-center">
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            title="Expand sidebar"
-            aria-label="Expand sidebar"
-            className="group grid size-9 place-items-center rounded-lg transition-colors hover:bg-elevated"
-          >
-            <ConcarettiLogo />
-          </button>
-        </div>
-      )}
+              <svg
+                viewBox="0 0 24 24"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.8}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 3v18" />
+                <path d="m14 9-3 3 3 3" />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+              className="group grid size-9 place-items-center rounded-lg transition-colors hover:bg-elevated"
+            >
+              <ConcarettiLogo />
+            </button>
+          </div>
+        )}
+      </div>
 
-      {primary.map((i) => (
-        <Item
-          key={i.key}
-          item={i}
-          active={i.key === active}
-          collapsed={!open}
-          onSelect={onSelect}
-        />
-      ))}
+      {/* 2. SCROLLABLE MIDDLE (ONLY THIS AREA SCROLLS) */}
+      <div className={`flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 py-1 ${open ? "px-3" : "px-2"}`}>
+        {primary.map((i) => (
+          <Item
+            key={i.key}
+            item={i}
+            active={i.key === active}
+            collapsed={!open}
+            onSelect={onSelect}
+          />
+        ))}
 
-      {more.length > 0 && (
-        <>
-          {open ? <GroupLabel>More</GroupLabel> : <div className="h-3" />}
-          {more.map((i) => (
-            <Item
-              key={i.key}
-              item={i}
-              active={i.key === active}
-              collapsed={!open}
-              onSelect={onSelect}
-            />
-          ))}
-        </>
-      )}
+        {more.length > 0 && (
+          <>
+            {open ? <GroupLabel>More</GroupLabel> : <div className="h-3" />}
+            {more.map((i) => (
+              <Item
+                key={i.key}
+                item={i}
+                active={i.key === active}
+                collapsed={!open}
+                onSelect={onSelect}
+              />
+            ))}
+          </>
+        )}
 
-      {open && middle}
+        {open && middle}
+      </div>
 
-      {/* Everything above scrolls; configuration and status sit at the bottom. */}
-      <div className="min-h-6 flex-1" />
-
-      {pinned.length > 0 && (
+      {/* 3. FIXED BOTTOM FOOTER (NEVER SCROLLS) */}
+      {(pinned.length > 0 || footer) && (
         <div
-          className="mt-4 flex flex-col gap-1 pt-3"
+          className={`shrink-0 mt-auto pt-2 pb-3 bg-void z-20 ${open ? "px-3" : "px-2"}`}
           style={{ borderTop: "var(--border)" }}
         >
-          {pinned.map((i) => (
-            <Item
-              key={i.key}
-              item={i}
-              active={i.key === active}
-              collapsed={!open}
-              onSelect={onSelect}
-            />
-          ))}
+          {pinned.length > 0 && (
+            <div className="flex flex-col gap-1 mb-2">
+              {pinned.map((i) => (
+                <Item
+                  key={i.key}
+                  item={i}
+                  active={i.key === active}
+                  collapsed={!open}
+                  onSelect={onSelect}
+                />
+              ))}
+            </div>
+          )}
+
+          {footer && (
+            <div>
+              {isValidElement(footer)
+                ? cloneElement(footer as any, { collapsed: !open })
+                : footer}
+            </div>
+          )}
         </div>
       )}
-
-      {footer && open && <div className="px-3 pt-3">{footer}</div>}
     </nav>
   );
 }

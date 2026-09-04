@@ -24,30 +24,7 @@ import { useAgentStore } from "./store/agentStore";
 import { PublicScreen } from "./screens/PublicScreen";
 import { StaffScreen } from "./screens/StaffScreen";
 import { StudentScreen } from "./screens/StudentScreen";
-import { Brand } from "./components/ui";
 
-/**
- * Which tier the server granted this request.
- *
- * A readout, not a control. It is worth a chip rather than nothing at all because
- * the screens differ enough that "why is there no Email tab" is a real question,
- * and the answer is always this word.
- */
-function RoleChip() {
-  const role = useAgentStore((s) => s.role);
-  return (
-    <span
-      className={`chip ${role === "staff" ? "bg-ok-soft" : ""}`}
-      title={
-        role === "staff"
-          ? "Granted because this request came from this machine"
-          : "Granted to callers from other hosts — set CONCA_OPEN_ROLE to widen it"
-      }
-    >
-      {role}
-    </span>
-  );
-}
 
 function OfflineBanner() {
   const offline = useAgentStore((s) => s.offline);
@@ -102,26 +79,7 @@ export function App() {
       ) : role === "student" ? (
         <StudentScreen />
       ) : (
-        <div className="min-h-dvh pt-1">
-          {/* Solid cream, not a blur: nothing in this style is translucent, and a
-              backdrop-filter on a sticky header is the most expensive way to draw
-              a rectangle. */}
-          <header className="sticky top-0 z-30 border-b-2 border-fg bg-void">
-            <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-2.5">
-              <Brand />
-              <div className="flex items-center gap-3">
-                <span className="type-mono hidden text-[10px] text-muted lg:inline">
-                  concurrent agentic reasoning, execution &amp; trust
-                </span>
-                <RoleChip />
-              </div>
-            </div>
-          </header>
-
-          <main className="mx-auto max-w-[1600px] px-4 py-4">
-            <PublicScreen />
-          </main>
-        </div>
+        <PublicScreen />
       )}
 
       {/* Mounted at the root: a gate can open from any screen, and the

@@ -43,10 +43,12 @@ import { EmailHub } from "../components/EmailHub";
 import { MarketPanel } from "../components/MarketPanel";
 import { ShopperPanel } from "../components/ShopperPanel";
 
-import { Sidebar, RailGroup, type RailItem } from "../components/Sidebar";
+import { RailProfile } from "../components/RailProfile";
+import { RailSessions } from "../components/RailSessions";
+import { Sidebar, type RailItem } from "../components/Sidebar";
 import { TelecomInbox } from "../components/TelecomInbox";
 import { ThoughtStream } from "../components/ThoughtStream";
-import { Result, relTime } from "../components/ui";
+import { Result } from "../components/ui";
 import { WorkDiary } from "../components/WorkDiary";
 import { useAgentStore } from "../store/agentStore";
 
@@ -89,150 +91,6 @@ const ITEMS: ReadonlyArray<RailItem<Tab> & { local?: boolean }> = [
   { key: "help", label: "Documentation", footer: true },
   { key: "setup", label: "Settings", footer: true, local: true },
 ];
-
-/** Past runs in the rail, with a "+" button to start fresh. */
-function RailSessions({ onSelectSession }: { onSelectSession?: () => void }) {
-  const sessions = useAgentStore((s) => s.sessions);
-  const current = useAgentStore((s) => s.sessionId);
-  const attach = useAgentStore((s) => s.attachSession);
-  const [query, setQuery] = useState("");
-
-  const filtered = sessions.filter(s => 
-    (s.title || s.id).toLowerCase().includes(query.toLowerCase())
-  );
-
-  return (
-    <RailGroup
-      label="SESSIONS"
-      icon="clock"
-    >
-      <div className="px-3 mb-2 mt-1">
-        <input 
-          type="text" 
-          placeholder="Search..." 
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="w-full bg-void border border-hairline rounded-md px-2 py-1 text-[11px] text-fg focus:outline-none focus:border-fg transition-colors"
-        />
-      </div>
-      {sessions.length === 0 ? (
-        <p className="type-mono px-3 py-1 text-[11px] text-muted">
-          No runs yet
-        </p>
-      ) : (
-        <ul className="space-y-0.5">
-          {filtered.slice(0, 8).map((s) => (
-            <li key={s.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  attach(s.id);
-                  onSelectSession?.();
-                }}
-                className={`type-mono flex w-full items-center justify-between rounded-full px-3 py-1.5 text-left text-[11px] transition-colors ${
-                  s.id === current
-                    ? "bg-elevated font-semibold text-fg"
-                    : "text-dim hover:bg-elevated hover:text-fg"
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {s.title || s.id.slice(0, 8)}
-                </span>
-                <span className="shrink-0 text-[9px] text-muted">
-                  {relTime(s.created_at)}
-                </span>
-              </button>
-            </li>
-          ))}
-          {filtered.length === 0 && query && (
-             <li className="type-mono px-3 py-1 text-[10px] text-muted text-center italic mt-2">
-               No matches found
-             </li>
-          )}
-        </ul>
-      )}
-    </RailGroup>
-  );
-}
-
-/** Live readouts, pinned under the rail. A readout, never a control. */
-function RailProfile() {
-  const role = useAgentStore((s) => s.role);
-  const rotator = useAgentStore((s) => s.rotator);
-  const offline = useAgentStore((s) => s.offline);
-  const userName = useAgentStore((s) => s.userName) || "shazzyazuwike@gmail.com";
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="relative">
-      {open && (
-        <div className="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-hairline bg-obsidian p-1.5 shadow-[0px_4px_24px_rgba(0,0,0,0.1)] z-50">
-          <p className="px-3 py-2 text-[11px] font-semibold text-fg/70 border-b border-hairline mb-1 truncate">
-            {userName}
-          </p>
-          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-dim transition-colors hover:bg-elevated hover:text-fg">
-            Settings
-          </button>
-          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-dim transition-colors hover:bg-elevated hover:text-fg flex justify-between">
-            Language
-          </button>
-          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-dim transition-colors hover:bg-elevated hover:text-fg">
-            Get help
-          </button>
-          <div className="my-1 border-t border-hairline" />
-          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-danger transition-colors hover:bg-danger-soft">
-            Log out
-          </button>
-        </div>
-      )}
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-3 rounded-full border border-transparent hover:border-hairline hover:bg-obsidian px-3 py-2 transition-all cursor-pointer text-left"
-      style={{ borderRadius: "999px" }}
-    >
-      <span
-        aria-hidden
-        className="type-display grid size-6 shrink-0 place-items-center rounded-full text-[10px]"
-        style={{ background: "var(--color-agent-orchestrator)" }}
-      >
-        {role.slice(0, 1)}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[12px] font-semibold uppercase text-fg">
-            {role}
-          </span>
-          <span
-            aria-hidden
-            title={offline ? "Backend unreachable" : "Connected"}
-            className="size-[6px] shrink-0 rounded-full"
-            style={{
-              background: offline ? "var(--color-danger)" : "var(--color-ok)",
-            }}
-          />
-        </div>
-        {rotator && (
-          <p
-            className="type-mono truncate text-[9px] text-muted"
-            title="Model slots answering, of the ladder's full size"
-          >
-            {rotator.active_count}/{rotator.ladder_size} MODELS
-          </p>
-        )}
-      </div>
-      <svg
-        viewBox="0 0 24 24"
-        className={`size-4 text-dim transition-transform ${open ? "rotate-180" : ""}`}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path d="m18 15-6-6-6 6" />
-      </svg>
-      </button>
-    </div>
-  );
-}
 
 /**
  * First paint: a headline, a composer, nothing else.
@@ -357,7 +215,7 @@ export function StaffScreen() {
           setTab(key);
         }}
         middle={<RailSessions onSelectSession={() => setTab("ops")} />}
-        footer={<RailProfile />}
+        footer={<RailProfile onNavigate={(t) => setTab(t as Tab)} />}
       />
 
       <main className="min-w-0 flex-1 overflow-hidden flex flex-col">

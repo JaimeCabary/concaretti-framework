@@ -27,8 +27,9 @@ import { EmailHub } from "../components/EmailHub";
 import { WorkDiary } from "../components/WorkDiary";
 import { Result, relTime } from "../components/ui";
 import { Sidebar, type RailItem } from "../components/Sidebar";
+import { RailProfile } from "../components/RailProfile";
+import { RailSessions } from "../components/RailSessions";
 import { useAgentStore } from "../store/agentStore";
-import { api } from "../lib/api";
 
 type Tab =
   | "work"
@@ -71,37 +72,7 @@ const RAIL_ITEMS: ReadonlyArray<RailItem<Tab>> = TABS.map((tab) => ({
     tab.key === "settings",
 }));
 
-function RoleSwitcher() {
-  const role = useAgentStore((s) => s.role);
-  const canSetup = useAgentStore((s) => s.canSetup);
-  const bootstrap = useAgentStore((s) => s.bootstrap);
 
-  if (!canSetup) return null;
-
-  const switchRole = async (nextRole: "public" | "student" | "staff") => {
-    if (nextRole === role) return;
-    await api.login(nextRole);
-    await bootstrap();
-  };
-
-  return (
-    <div className="space-y-2 border-t border-hairline pt-3">
-      <span className="type-mono text-[10px] text-muted">PREVIEW ROLE</span>
-      <div className="flex gap-1">
-        {(["public", "student", "staff"] as const).map((nextRole) => (
-          <button
-            key={nextRole}
-            type="button"
-            onClick={() => void switchRole(nextRole)}
-            className={`type-mono px-2 py-1 text-[9px] uppercase ${nextRole === role ? "bg-council-soft" : "bg-elevated text-dim"}`}
-          >
-            {nextRole}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function RecentSessionsCollapsible() {
   const sessions = useAgentStore((s) => s.sessions);
@@ -301,7 +272,8 @@ export function StudentScreen() {
         items={visibleRail}
         active={tab}
         onSelect={setTab}
-        footer={<RoleSwitcher />}
+        middle={<RailSessions onSelectSession={() => setTab("work")} />}
+        footer={<RailProfile onNavigate={(t) => setTab(t as Tab)} />}
       />
 
       <main className="min-w-0 flex-1 h-full overflow-hidden flex flex-col">

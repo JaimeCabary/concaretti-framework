@@ -121,9 +121,17 @@ export function EmailHub() {
       </div>
 
       {notice && (
-        <p className="inset-flat bg-warn-soft px-3 py-2 text-[12px] text-fg">
-          {notice}
-        </p>
+        <div className="flex items-center justify-between rounded-lg border border-hairline bg-obsidian px-4 py-3 text-[12px] text-dim">
+          <div className="flex items-center gap-2">
+            <span className="size-2 rounded-full bg-warn shrink-0" />
+            <span>
+              {notice.includes("500")
+                ? "Gmail is not connected. Configure Google OAuth credentials in Settings to enable live inbox sync."
+                : notice}
+            </span>
+          </div>
+          <span className="type-mono text-[9px] text-muted uppercase tracking-wider">Optional Integration</span>
+        </div>
       )}
 
       {/* Inbox or Thread View */}
