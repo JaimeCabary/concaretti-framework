@@ -17,10 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "../store/agentStore";
 import type { Role, SseEvent } from "../types";
 import {
-  AgentTag,
-  agentColor,
   Chip,
-  clockTime,
   Empty,
   Panel,
   Spinner,
@@ -30,26 +27,15 @@ const NEAR_BOTTOM_PX = 48;
 
 function ThoughtRow({
   event,
-  showModel,
 }: {
   event: SseEvent;
-  showModel: boolean;
+  showModel?: boolean;
 }) {
   const isError = event.type === "error";
-  const isActivity = event.type === "activity";
   const text = String(event.text ?? event.message ?? "");
   if (!text) return null;
 
-  // The rail is the agent's colour where a step belongs to one. Errors keep the
-  // danger rail regardless — what went wrong outranks who was running.
   const agent = typeof event.agent === "string" ? event.agent : "";
-  const rail = isError
-    ? "var(--color-danger)"
-    : agent
-      ? agentColor(agent)
-      : isActivity
-        ? "var(--color-hairline)"
-        : "var(--color-council)";
 
   // The backend prefixes the text with `agent: ` so the line reads on its own in
   // a plain log. Here the tag carries that, so strip the duplicate.
@@ -59,50 +45,49 @@ function ThoughtRow({
       : text;
 
   return (
-    <li className="border-l-2 py-2 pl-3 pr-1" style={{ borderColor: rail }}>
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="font-mono text-[10px] tabular-nums text-muted">
-          {clockTime(event.ts)}
-        </span>
-        {agent ? <AgentTag agent={agent} /> : null}
-        {showModel && event.model ? (
-          <span
-            className="font-mono text-[10px] text-muted"
-            title={`tier: ${String(event.tier ?? "unknown")}`}
-          >
-            {String(event.model)}
-            {event.tier ? ` · ${String(event.tier)}` : ""}
-          </span>
-        ) : null}
-      </div>
-      {event.type === "thought" && body.includes("\n") ? (
-        <details className="mt-1 group">
-          <summary className="cursor-pointer text-[13px] text-dim hover:text-fg select-none list-none flex items-center gap-1.5 [&::-webkit-details-marker]:hidden">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-3.5 transition-transform group-open:rotate-90 text-muted"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-            </svg>
-            <span className="truncate">{body.split("\n")[0]}</span>
+    <li className="mb-2">
+      {event.type === "thought" ? (
+        <details className="group rounded-lg bg-obsidian/50 border border-transparent hover:border-hairline overflow-hidden transition-all">
+          <summary className="cursor-pointer text-[12px] text-dim select-none list-none flex items-center gap-2 px-3 py-2 hover:bg-elevated hover:text-fg transition-colors [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-1.5 font-medium">
+              <svg
+                viewBox="0 0 24 24"
+                className="size-3.5 transition-transform group-open:rotate-90"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+              </svg>
+              {(() => {
+                if (agent) {
+                  return `${agent.charAt(0).toUpperCase() + agent.slice(1)} agent thinking`;
+                }
+                return "Concaretti thinking";
+              })()}
+            </span>
           </summary>
-          <div className="mt-2 pl-5">
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-fg opacity-90">
-              {body.slice(body.indexOf("\n") + 1)}
+          <div className="px-3 py-2.5 bg-void border-t border-hairline/50">
+            <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-dim">
+              {body}
             </p>
           </div>
         </details>
       ) : (
-        <p
-          className={`mt-0.5 whitespace-pre-wrap text-[13px] leading-relaxed ${
-            isError ? "text-danger" : isActivity ? "text-dim" : "text-fg"
+        <div
+          className={`flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] transition-colors border ${
+            isError
+              ? "bg-danger-soft/20 text-danger border-danger/30"
+              : "bg-transparent border-transparent hover:bg-elevated/30 text-dim"
           }`}
         >
-          {body}
-        </p>
+          {isError ? (
+            <svg viewBox="0 0 24 24" className="size-3.5 shrink-0 mt-[1px]" fill="none" stroke="currentColor" strokeWidth={2.5}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="size-3.5 shrink-0 mt-[1px] text-fg/40" fill="none" stroke="currentColor" strokeWidth={2.5}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          )}
+          <span className="whitespace-pre-wrap leading-relaxed">{body}</span>
+        </div>
       )}
     </li>
   );
@@ -118,9 +103,21 @@ export function ThoughtStream({ role }: { role: Role }) {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
 
-  const visible = events.filter(
-    (e) => e.type === "thought" || e.type === "activity" || e.type === "error",
-  );
+  const visible = events
+    .filter((e) => e.type === "thought" || e.type === "activity" || e.type === "error")
+    .reduce((acc, e) => {
+      if (e.type === "thought" && acc.length > 0) {
+        const last = acc[acc.length - 1];
+        if (last.type === "thought" && last.agent === e.agent) {
+          const t1 = String(last.text ?? last.message ?? "");
+          const t2 = String(e.text ?? e.message ?? "");
+          last.text = t1 + (t1 && t2 ? "\n\n" : "") + t2;
+          return acc;
+        }
+      }
+      acc.push({ ...e });
+      return acc;
+    }, [] as SseEvent[]);
 
   useEffect(() => {
     const el = scroller.current;

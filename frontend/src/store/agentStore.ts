@@ -34,6 +34,7 @@ export type ConnState = "idle" | "open" | "error" | "closed";
 interface AgentState {
   // ── identity ────────────────────────────────────────────────────────────
   role: Role;
+  userName: string;
   agents: string[];
   haloVisible: boolean;
   roleLoaded: boolean;
@@ -95,6 +96,7 @@ interface AgentState {
   refreshConca: () => Promise<void>;
   clearRun: () => void;
   dismissError: () => void;
+  setUserName: (name: string) => void;
 }
 
 /** Module-scoped: a live EventSource is not serialisable state. */
@@ -114,6 +116,7 @@ const eventKey = (e: SseEvent) =>
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   role: "public",
+  userName: typeof window !== "undefined" ? localStorage.getItem("conca_user_name") || "" : "",
   agents: [],
   haloVisible: false,
   roleLoaded: false,
@@ -140,7 +143,28 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   async bootstrap() {
     try {
-      const [me, conca] = await Promise.all([api.me(), api.concaStatus()]);
+      const [me, conca, profile] = await Promise.all([
+        api.me(),
+        api.concaStatus(),
+        api.getProfile().catch(() => null),
+      ]);
+      if (profile) {
+        if (profile.name) {
+          try {
+            localStorage.setItem("conca_user_name", profile.name);
+          } catch {
+            /* ignore */
+          }
+          set({ userName: profile.name });
+        }
+        if (profile.onboarded) {
+          try {
+            localStorage.setItem("conca_onboarded_v1", "1");
+          } catch {
+            /* ignore */
+          }
+        }
+      }
       set({
         role: me.role,
         agents: me.agents,
@@ -240,15 +264,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               patch.pendingHalo = req;
               
               if (typeof window !== "undefined" && "Notification" in window) {
+                const taskDesc = req.action || req.details || "task";
                 if (Notification.permission === "granted") {
                   new Notification("Concaretti Authorization Required", {
-                    body: `Agent is requesting permission to execute: ${req.task}.`,
+                    body: `Agent is requesting permission to execute: ${taskDesc}.`,
                   });
                 } else if (Notification.permission !== "denied") {
                   Notification.requestPermission().then((perm) => {
                     if (perm === "granted") {
                       new Notification("Concaretti Authorization Required", {
-                        body: `Agent is requesting permission to execute: ${req.task}.`,
+                        body: `Agent is requesting permission to execute: ${taskDesc}.`,
                       });
                     }
                   });
@@ -385,6 +410,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   dismissError() {
     set({ lastError: null });
+  },
+
+  setUserName(name: string) {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("conca_user_name", name);
+    }
+    set({ userName: name });
   },
 }));
 

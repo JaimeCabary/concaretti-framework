@@ -19,6 +19,7 @@ import type {
   QuotesResult,
 } from "../types";
 import { Empty, Spinner, relTime } from "./ui";
+import { ChartComponent } from "./ChartComponent";
 
 const num = (v: number | null | undefined, digits = 2): string =>
   v == null
@@ -50,6 +51,7 @@ export function MarketPanel() {
   const [quotes, setQuotes] = useState<QuotesResult | null>(null);
   const autoLoaded = useRef(false);
   const [facts, setFacts] = useState<FundamentalsResult | null>(null);
+  const [chartData, setChartData] = useState<any[] | null>(null);
   const [book, setBook] = useState<PortfolioResult | null>(null);
   const [view, setView] = useState<"quotes" | "book">("quotes");
   const [busy, setBusy] = useState<"quotes" | "facts" | "trade" | null>(null);
@@ -95,20 +97,47 @@ export function MarketPanel() {
     }
   }, [quotes, symbols]);
 
+  // Auto-dig the first symbol to show candlesticks immediately
+  useEffect(() => {
+    if (quotes && quotes.ok && quotes.quotes && quotes.quotes.length > 0 && !facts && !busy) {
+      dig(quotes.quotes[0].symbol);
+    }
+  }, [quotes, facts, busy]);
+
   const dig = (symbol: string) => {
     if (busy) return;
     setBusy("facts");
     setErr(null);
-    void api
-      .marketFundamentals(symbol)
-      .then((r) => {
-        setFacts(r);
-        if (!r.ok) setErr(r.summary);
-      })
-      .catch((e: unknown) =>
-        setErr(e instanceof Error ? e.message : "Fundamentals failed"),
-      )
-      .finally(() => setBusy(null));
+    setChartData(null);
+    
+    Promise.all([
+      api.marketFundamentals(symbol).catch((e) => ({ ok: false, summary: e instanceof Error ? e.message : "Fundamentals failed" } as FundamentalsResult)),
+      api.marketChart(symbol).catch(() => ({ ok: false }))
+    ]).then(([fRes, cRes]) => {
+      setFacts(fRes);
+      if (!fRes.ok) setErr(fRes.summary);
+      
+      if (cRes.ok && cRes.chart && cRes.chart.chart && cRes.chart.chart.result && cRes.chart.chart.result[0]) {
+        const result = cRes.chart.chart.result[0];
+        const timestamps = result.timestamp;
+        const quote = result.indicators.quote[0];
+        if (timestamps && quote) {
+          const data = [];
+          for (let i = 0; i < timestamps.length; i++) {
+            if (quote.open[i] != null && quote.high[i] != null && quote.low[i] != null && quote.close[i] != null) {
+              data.push({
+                time: timestamps[i],
+                open: quote.open[i],
+                high: quote.high[i],
+                low: quote.low[i],
+                close: quote.close[i],
+              });
+            }
+          }
+          setChartData(data);
+        }
+      }
+    }).finally(() => setBusy(null));
   };
 
   const fill = () => {
@@ -144,46 +173,24 @@ export function MarketPanel() {
             QUOTES & PAPER TRADING
           </p>
         </div>
-        <button
-          onClick={loadBook}
-          className="btn bg-obsidian border border-hairline shadow-none hover:bg-elevated transition-colors disabled:opacity-50"
-          style={{ borderRadius: "var(--radius)" }}
-        >
-          <span className="type-mono text-[12px] flex items-center gap-2">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
-          </span>
-        </button>
       </div>
 
       {/* Metrics Pills */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div
-          className="panel panel-quiet bg-agent-market p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-agent-market p-4 border border-fg shadow-[2px_2px_0px_#000]"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-fg/70 mb-2">POSITIONS</p>
+          <p className="type-mono text-[11px] text-fg/70 mb-2 font-bold">POSITIONS</p>
           <p className="type-display text-[32px] text-fg truncate">
             {book ? book.positions.length : "—"}
           </p>
         </div>
         <div
-          className="panel panel-quiet bg-obsidian border-hairline p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-obsidian border border-fg shadow-[2px_2px_0px_#000] p-4"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-muted mb-2">TOTAL RETURN</p>
+          <p className="type-mono text-[11px] text-muted mb-2 font-bold">TOTAL RETURN</p>
           <p className="type-display text-[32px] text-fg">
             {book ? signed(book.total ?? book.realized) : "—"}
           </p>
@@ -373,6 +380,12 @@ export function MarketPanel() {
                 <p className="mt-2 text-[12px] leading-relaxed text-dim">
                   {facts.fundamentals.summary}
                 </p>
+              )}
+
+              {chartData && chartData.length > 0 && (
+                <div className="mt-4 border-2 border-hairline" style={{ borderRadius: "var(--radius-md)", overflow: 'hidden' }}>
+                  <ChartComponent data={chartData} />
+                </div>
               )}
             </div>
           )}

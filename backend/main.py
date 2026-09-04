@@ -13,6 +13,7 @@ Run it:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import secrets
 import sys
@@ -261,8 +262,9 @@ async def _scheduler_loop() -> None:
                     continue
                 last_fired[key] = stamp
 
-                session_id = store().create_session(
-                    role="staff", prompt=job.prompt, title=f"scheduled — {job.cron}"
+                session_id = f"cron-{job.id}"
+                store().ensure_session(
+                    session_id, role="staff", prompt=job.prompt, title=f"scheduled — {job.cron}"
                 )
                 store().log_audit(
                     session_id, "scheduler", "cron_dispatch", "allowed", job.cron
@@ -601,6 +603,35 @@ async def me(request: Request, role: Role = Depends(current_role)) -> dict:
         # reaches the server over a LAN and cannot write its `.env`.
         "setup": role == "staff" and is_local(request),
     }
+
+
+class ProfilePayload(BaseModel):
+    name: str = ""
+    role: str = "staff"
+    onboarded: bool = True
+
+
+PROFILE_FILE = Path(__file__).parent.parent / "user_profile.json"
+
+
+@app.get("/api/profile")
+async def get_profile() -> dict:
+    if PROFILE_FILE.exists():
+        try:
+            return json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"name": "Heccker", "role": "staff", "onboarded": True}
+
+
+@app.post("/api/profile")
+async def update_profile(payload: ProfilePayload) -> dict:
+    data = {"name": payload.name, "role": payload.role, "onboarded": payload.onboarded}
+    try:
+        PROFILE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as err:
+        print("[!] Failed writing profile file:", err)
+    return {"ok": True, **data}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -977,6 +1008,12 @@ async def diary_add(req: DiaryRequest) -> dict:
         day, req.summary, req.reflection, req.agent_assisted
     )
     return {"ok": True, "entry": entry.__dict__}
+
+
+@app.delete("/api/diary/{entry_id}")
+async def diary_delete(entry_id: str) -> dict:
+    ok = store().delete_diary_entry(entry_id)
+    return {"ok": ok}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1794,6 +1831,23 @@ async def market_quote(symbols: str, role: Role = Depends(current_role)) -> dict
     return await quote({"symbols": symbols}, _shopper_ctx(role, "market-read"))
 
 
+@app.get("/api/market/chart")
+async def market_chart(symbol: str, range: str = "1mo", interval: str = "1d", role: Role = Depends(current_role)) -> dict:
+    """Historical chart data."""
+    _require_agent("market", role, "market")
+    import httpx
+    import urllib.parse
+    headers = {"User-Agent": "Mozilla/5.0"}
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"https://query2.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol.upper())}?range={range}&interval={interval}",
+            headers=headers
+        )
+        if res.status_code == 200:
+            return {"ok": True, "chart": res.json()}
+        return {"ok": False, "summary": f"Failed to fetch chart: {res.status_code}"}
+
+
 @app.get("/api/market/fundamentals")
 async def market_fundamentals(symbol: str, role: Role = Depends(current_role)) -> dict:
     _require_agent("market", role, "market")
@@ -2130,8 +2184,8 @@ async def setup_integrations(
     preview the student surface also closes this page, as it should.
     """
     require_local(request)
-    if role != "staff":
-        raise HTTPException(403, "only staff may read the integration list")
+    if role not in ("staff", "student"):
+        raise HTTPException(403, "only operators may read the integration list")
     return {
         **envfile.status(),
         # Reported alongside so the UI can show the ladder growing as keys land,

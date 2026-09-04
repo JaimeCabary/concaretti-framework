@@ -92,52 +92,30 @@ export function EmailHub() {
               {connected ? "Gmail connected" : "Not connected"}
             </Chip>
           </div>
-          <button
-            onClick={() => {}}
-            className="btn bg-obsidian border border-hairline shadow-none hover:bg-elevated transition-colors"
-            style={{ borderRadius: "var(--radius)" }}
-          >
-            <span className="type-mono text-[12px] flex items-center gap-2">
-              <svg
-                viewBox="0 0 24 24"
-                className="size-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              Refresh
-            </span>
-          </button>
         </div>
       </div>
 
       {/* Metrics Pills */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
-          className="panel panel-quiet bg-agent-email p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-agent-email p-4 border border-fg shadow-[2px_2px_0px_#000]"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-fg/70 mb-2">UNREAD</p>
+          <p className="type-mono text-[11px] text-fg/70 mb-2 font-bold">UNREAD</p>
           <p className="type-display text-[32px] text-fg">{unreadCount}</p>
         </div>
         <div
-          className="panel panel-quiet bg-elevated p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-elevated p-4 border border-fg shadow-[2px_2px_0px_#000]"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-fg/70 mb-2">RECENT</p>
+          <p className="type-mono text-[11px] text-fg/70 mb-2 font-bold">RECENT</p>
           <p className="type-display text-[32px] text-fg">{recentCount}</p>
         </div>
         <div
-          className="panel panel-quiet bg-warn-soft p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-warn-soft p-4 border border-fg shadow-[2px_2px_0px_#000]"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-fg/70 mb-2">DRAFTS</p>
+          <p className="type-mono text-[11px] text-fg/70 mb-2 font-bold">DRAFTS</p>
           <p className="type-display text-[32px] text-fg">{draftsCount}</p>
         </div>
       </div>

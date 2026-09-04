@@ -45,6 +45,7 @@ export function ShopperPanel() {
   const [items, setItems] = useState("");
   const [budget, setBudget] = useState("");
   const [query, setQuery] = useState("");
+  const [cart, setCart] = useState<ShopCandidate[]>([]);
 
   const load = useCallback(() => {
     void api
@@ -103,6 +104,28 @@ export function ShopperPanel() {
       );
   };
 
+  const addToCart = (c: ShopCandidate) => {
+    if (!cart.find(item => item.url === c.url)) {
+      setCart([...cart, c]);
+    }
+  };
+
+  const checkoutCart = () => {
+    if (cart.length === 0 || running) return;
+    // For simplicity, just run errand with cart titles, or we can use shopCheckout for the first item
+    setItems(cart.map(c => c.title).join(", "));
+    // Run errand with cart items
+    setBusy("errand");
+    setErr(null);
+    void api
+      .shopErrand({ items: cart.map(c => c.title), budget: budget.trim() })
+      .then(track)
+      .catch((e: unknown) =>
+        setErr(e instanceof Error ? e.message : "Could not start the checkout"),
+      )
+      .finally(() => setBusy(null));
+  };
+
   const retrack = (id?: string) => {
     if (busy) return;
     setBusy("track");
@@ -140,53 +163,31 @@ export function ShopperPanel() {
             BUDGET, CART & TRACKING
           </p>
         </div>
-        <button
-          onClick={load}
-          className="btn bg-obsidian border border-hairline shadow-none hover:bg-elevated transition-colors"
-          style={{ borderRadius: "var(--radius)" }}
-        >
-          <span className="type-mono text-[12px] flex items-center gap-2">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
-          </span>
-        </button>
       </div>
 
       {/* Metrics Pills */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
-          className="panel panel-quiet bg-agent-shopper p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-agent-shopper p-4 border border-fg shadow-[2px_2px_0px_#000]"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-fg/70 mb-2">CHECKOUT MODE</p>
+          <p className="type-mono text-[11px] text-fg/70 mb-2 font-bold">CHECKOUT MODE</p>
           <p className="type-display text-[24px] text-fg truncate">
             {mode.toUpperCase()}
           </p>
         </div>
         <div
-          className="panel panel-quiet bg-obsidian border-hairline p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-obsidian border border-fg shadow-[2px_2px_0px_#000] p-4"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-muted mb-2">OPEN ORDERS</p>
+          <p className="type-mono text-[11px] text-muted mb-2 font-bold">OPEN ORDERS</p>
           <p className="type-display text-[32px] text-fg">{openOrdersCount}</p>
         </div>
         <div
-          className="panel panel-quiet bg-obsidian border-hairline p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-obsidian border border-fg shadow-[2px_2px_0px_#000] p-4"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-muted mb-2">
+          <p className="type-mono text-[11px] text-muted mb-2 font-bold">
             SPEND PERMITTED
           </p>
           <p className="type-display text-[32px] text-fg">
@@ -258,6 +259,41 @@ export function ShopperPanel() {
           </p>
         </div>
       </div>
+
+      {/* ── shopping cart ── */}
+      {cart.length > 0 && (
+        <div
+          className="panel bg-agent-shopper border-hairline p-5 mt-6"
+          style={{ borderRadius: "var(--radius-md)", border: '4px solid #000' }}
+        >
+          <h3 className="type-display text-[16px] mb-3">YOUR CART</h3>
+          <ul className="divide-y divide-black border-t-2 border-b-2 border-black mb-4 bg-white p-3">
+            {cart.map((c, i) => (
+              <li key={i} className="py-2 flex justify-between items-center">
+                <span className="text-[13px] font-bold">{c.title}</span>
+                <span className="text-[13px]">{money(c.price_converted ?? c.price, c.price_in ?? c.currency)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex gap-2">
+             <button
+              type="button"
+              className="btn btn-primary flex-1 py-2 text-[14px]"
+              disabled={busy !== null || running}
+              onClick={checkoutCart}
+            >
+              Checkout Cart
+            </button>
+             <button
+              type="button"
+              className="btn py-2 px-4 text-[14px]"
+              onClick={() => setCart([])}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── one item, priced now ── */}
       <div
@@ -351,10 +387,19 @@ export function ShopperPanel() {
                       type="button"
                       className="chip ml-auto"
                       disabled={running}
-                      onClick={() => buy(c)}
-                      title="Adds to cart and stops at the payment page. Pauses for your approval first."
+                      onClick={() => addToCart(c)}
+                      title="Add this item to your cart"
                     >
-                      Buy — pauses for approval
+                      Add to Cart
+                    </button>
+                    <button
+                      type="button"
+                      className="chip bg-fg text-void hover:opacity-90"
+                      disabled={running}
+                      onClick={() => buy(c)}
+                      title="Buy immediately"
+                    >
+                      Buy Now
                     </button>
                   </div>
                 </li>

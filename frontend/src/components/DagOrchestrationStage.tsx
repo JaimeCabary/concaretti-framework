@@ -107,7 +107,7 @@ export function DagOrchestrationStage() {
           </span>
         ) : null
       }
-      bodyClass="overflow-y-auto max-h-[52vh]"
+      bodyClass="overflow-y-auto"
     >
       {total === 0 ? (
         <Empty>

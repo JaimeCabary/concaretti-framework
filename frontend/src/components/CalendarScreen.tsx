@@ -1,302 +1,63 @@
 /**
- * Calendar — the year at a glance.
+ * Calendar & Timetable — Blueprint Style
  *
- * Twelve month cards in a grid, which is what the reference app shows and what
- * the page's own tagline promises. The previous revision was a 30-day agenda
- * list and argued that a grid "reads poorly at the density this app produces" —
- * true of a *single* month blown up to fill a screen, and not true of twelve
- * small ones, where the point is not to read individual events but to see the
- * shape of the year and find the day you want.
+ * Single month view takes up the full space with a generous 42-cell grid
+ * and a dedicated Day Schedule & Quick-Add Agenda pane on the right (matching
+ * the WorkDiary blueprint aesthetic).
  *
- * So the agenda did not disappear, it moved: clicking a day opens it as a
- * schedule, which is the only place an event's description, time and delete
- * button are worth the room. The grid is navigation; the modal is content.
- *
- * A day carries a dot per event, capped at three, tinted by kind. That is the
- * entire density budget for a cell 32px wide — a title would not fit and a count
- * badge would compete with the date it sits next to.
- *
- * Creation still goes through natural language, handed to the orchestrator so the
- * calendar agent parses the date. That is the behaviour worth showing, and it is
- * the reference's `Ask the calendar agent` bar.
+ * When "Expand Full Year" is toggled, it displays a 12-month overview where each
+ * month is pressed to compact normal size, allowing instant visual scanning of the year
+ * and 1-click zooming back into any month.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../lib/api";
 import { useAgentStore } from "../store/agentStore";
 import type { CalendarEvent } from "../types";
-import { clockTime, Empty } from "./ui";
+import { clockTime } from "./ui";
 
-const KIND_DOT: Record<string, string> = {
-  exam: "var(--color-danger-soft)",
-  deadline: "var(--color-warn-soft)",
-  revision: "var(--color-study)",
-  event: "var(--color-calendar)",
+const toDateString = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
-/**
- * Month header tints, three months to a season.
- *
- * Seasonal rather than twelve distinct pastels: twelve hues in one viewport is a
- * swatch book, and the grouping is information — a glance tells you which
- * quarter you are looking at without reading a single month name.
- */
-const SEASON = [
-  "var(--color-agent-research)", // Dec–Feb
-  "var(--color-agent-file)", // Mar–May
-  "var(--color-warn-soft)", // Jun–Aug
-  "var(--color-agent-news)", // Sep–Nov
-];
-const tintFor = (month: number) => SEASON[Math.floor(((month + 1) % 12) / 3)];
+const todayString = () => toDateString(new Date());
 
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+const formatDisplayDate = (dateStr: string) => {
+  const parts = dateStr.split("-").map(Number);
+  if (parts.length !== 3) {
+    return { raw: dateStr, numeric: dateStr, full: dateStr, isToday: dateStr === todayString() };
+  }
+  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+  const day = String(parts[2]).padStart(2, "0");
+  const month = String(parts[1]).padStart(2, "0");
+  const year = parts[0];
+  const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
+  const monthName = d.toLocaleDateString("en-US", { month: "long" });
+  return {
+    raw: dateStr,
+    numeric: `${day} / ${month} / ${year}`,
+    full: `${weekday}, ${day} ${monthName} ${year}`,
+    isToday: dateStr === todayString(),
+  };
+};
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
 
-/** Sunday-first, matching the reference. Keys are indices — the letters repeat. */
-const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEK_DAYS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
 
-const dayKey = (ts: number) => new Date(ts * 1000).toDateString();
-
-function Sparkle() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="size-[18px] shrink-0 text-muted"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M12 3.5l1.7 4.8 4.8 1.7-4.8 1.7L12 16.5l-1.7-4.8L5.5 10l4.8-1.7z" />
-      <path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z" />
-    </svg>
-  );
-}
-
-function Chevron({ dir }: { dir: "prev" | "next" }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path
-        d={
-          dir === "prev" ? "M14.5 5.5 8 12l6.5 6.5" : "M9.5 5.5 16 12l-6.5 6.5"
-        }
-      />
-    </svg>
-  );
-}
-
-/**
- * One month.
- *
- * Leading blanks rather than trailing days from the previous month: a greyed-out
- * `29 30 31` in the first row of January is three numbers that belong to a
- * different card, and at this size the eye reads them as January's.
- */
-function Month({
-  year,
-  month,
-  byDay,
-  onPick,
-}: {
-  year: number;
-  month: number;
-  byDay: Map<string, CalendarEvent[]>;
-  onPick: (d: Date) => void;
-}) {
-  const first = new Date(year, month, 1);
-  const days = new Date(year, month + 1, 0).getDate();
-  const today = new Date().toDateString();
-
-  return (
-    <section
-      className="panel bg-obsidian overflow-hidden border-hairline shadow-none"
-      style={{ borderRadius: "var(--radius-lg)" }}
-    >
-      <header
-        className="flex items-baseline justify-between gap-2 px-5 py-3"
-        style={{ background: tintFor(month) }}
-      >
-        <h3 className="type-display text-[16px] uppercase">{MONTHS[month]}</h3>
-        <span className="type-mono text-[11px] text-fg/40">{year}</span>
-      </header>
-
-      <div className="grid grid-cols-7 gap-y-2 gap-x-1 px-4 pb-4 pt-3">
-        {DOW.map((d, n) => (
-          <span
-            key={n}
-            aria-hidden
-            className="type-mono grid h-6 place-items-center text-[10px] text-muted font-semibold"
-          >
-            {d}
-          </span>
-        ))}
-
-        {Array.from({ length: first.getDay() }, (_, n) => (
-          <span key={`pad${n}`} aria-hidden />
-        ))}
-
-        {Array.from({ length: days }, (_, n) => {
-          const date = new Date(year, month, n + 1);
-          const items = byDay.get(date.toDateString()) ?? [];
-          const isToday = date.toDateString() === today;
-
-          return (
-            <button
-              key={n}
-              type="button"
-              onClick={() => onPick(date)}
-              aria-label={`${n + 1} ${MONTHS[month]} ${year}, ${items.length} events`}
-              className={`relative grid h-8 place-items-center rounded-lg text-[12px]
-                transition-colors ${
-                  isToday
-                    ? "font-semibold text-fg"
-                    : items.length
-                      ? "text-fg hover:bg-elevated"
-                      : "text-dim hover:bg-elevated"
-                }`}
-              style={
-                isToday ? { background: "var(--color-elevated)" } : undefined
-              }
-            >
-              {n + 1}
-              {items.length > 0 && (
-                <span className="absolute bottom-[3px] flex gap-[2px]">
-                  {items.slice(0, 3).map((e) => (
-                    <span
-                      key={e.id}
-                      aria-hidden
-                      className="size-[3px] rounded-full"
-                      style={{
-                        background:
-                          KIND_DOT[e.kind] ?? "var(--color-agent-calendar)",
-                      }}
-                    />
-                  ))}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-/** The day schedule. A dialog, because it is the only modal state this screen has. */
-function DayModal({
-  date,
-  items,
-  onClose,
-  onDelete,
-}: {
-  date: Date;
-  items: CalendarEvent[];
-  onClose: () => void;
-  onDelete: (id: string) => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-[8000] grid place-items-center p-4"
-      style={{ background: "#1a1a1a29" }}
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className="panel flex max-h-[80svh] w-full max-w-lg flex-col"
-        style={{ boxShadow: "var(--shadow-lg)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex shrink-0 items-start justify-between gap-4 px-5 pb-3 pt-4">
-          <h2 className="type-tagline text-[22px] leading-tight text-fg">
-            {date.toLocaleDateString([], {
-              weekday: "long",
-              day: "2-digit",
-              month: "long",
-              year: "numeric",
-            })}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="type-mono shrink-0 text-[10px] text-dim underline"
-          >
-            Close
-          </button>
-        </header>
-
-        {items.length === 0 ? (
-          <p className="type-mono px-5 pb-6 pt-2 text-center text-[11px] text-muted">
-            It&rsquo;s quiet here today.
-          </p>
-        ) : (
-          <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-5 pb-5 pt-1">
-            {items.map((e) => (
-              <li
-                key={e.id}
-                className="inset group flex items-start gap-2.5 px-3 py-2.5"
-              >
-                <span
-                  aria-hidden
-                  className="mt-1 size-2.5 shrink-0 rounded-full"
-                  style={{
-                    background:
-                      KIND_DOT[e.kind] ?? "var(--color-agent-calendar)",
-                  }}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] text-fg">{e.title}</p>
-                  <p className="text-[11px] text-dim">
-                    {clockTime(e.start_ts)} – {clockTime(e.end_ts)}
-                    {e.source !== "local" ? ` · ${e.source}` : ""}
-                  </p>
-                  {e.description ? (
-                    <p className="mt-0.5 text-[11px] leading-snug text-dim">
-                      {e.description}
-                    </p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onDelete(e.id)}
-                  className="shrink-0 text-[11px] text-dim underline opacity-0
-                    transition-opacity hover:text-danger focus:opacity-100
-                    group-hover:opacity-100"
-                  aria-label={`Delete ${e.title}`}
-                >
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
+const KIND_META: Record<string, { label: string; dot: string; bg: string; text: string }> = {
+  exam: { label: "Exam", dot: "#FF3366", bg: "rgba(255, 51, 102, 0.15)", text: "#FF3366" },
+  deadline: { label: "Deadline", dot: "#ECC94B", bg: "rgba(236, 201, 75, 0.15)", text: "#ECC94B" },
+  revision: { label: "Revision", dot: "#9F7AEA", bg: "rgba(159, 122, 234, 0.15)", text: "#9F7AEA" },
+  event: { label: "Event", dot: "#4FD1C5", bg: "rgba(79, 209, 197, 0.15)", text: "#4FD1C5" },
+};
 
 export function CalendarScreen() {
   const runPrompt = useAgentStore((s) => s.runPrompt);
@@ -304,15 +65,26 @@ export function CalendarScreen() {
   const finalSummary = useAgentStore((s) => s.finalSummary);
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [nl, setNl] = useState("");
+  const [selectedDate, setSelectedDate] = useState<string>(todayString());
   const [err, setErr] = useState<string | null>(null);
-  const [year, setYear] = useState(() => new Date().getFullYear());
-  const [picked, setPicked] = useState<Date | null>(null);
+  const [nl, setNl] = useState("");
+
+  // Navigation state
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0 - 11
   const [expandedYear, setExpandedYear] = useState(false);
 
-  // A year of grid needs a year of events. One request rather than twelve: the
-  // endpoint takes a horizon in days, and 400 covers the whole grid plus the
-  // spill either side that a January or December card shows.
+  // Quick event form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newKind, setNewKind] = useState<"event" | "exam" | "deadline" | "revision">("event");
+  const [newStartTime, setNewStartTime] = useState("09:00");
+  const [newEndTime, setNewEndTime] = useState("10:00");
+  const [newDesc, setNewDesc] = useState("");
+  const [savingEvent, setSavingEvent] = useState(false);
+
+  // Load events
   const load = useCallback(() => {
     void api
       .events({ days: 400 })
@@ -333,182 +105,656 @@ export function CalendarScreen() {
 
   useEffect(load, [load]);
 
-  // A finished run may have created an event; refetch rather than guess.
   useEffect(() => {
     if (finalSummary) load();
   }, [finalSummary, load]);
 
-  const submit = () => {
+  // Group events by YYYY-MM-DD
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, CalendarEvent[]>();
+    for (const e of events) {
+      const d = new Date(e.start_ts * 1000);
+      const k = toDateString(d);
+      const list = map.get(k) ?? [];
+      list.push(e);
+      map.set(k, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.start_ts - b.start_ts);
+    }
+    return map;
+  }, [events]);
+
+  // Compute 42 calendar cells for any given month & year
+  const getCalendarDays = useCallback(
+    (year: number, month: number) => {
+      const firstDayIndex = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+      const days: Array<{
+        dateStr: string;
+        dayNumber: number;
+        isCurrentMonth: boolean;
+        items: CalendarEvent[];
+      }> = [];
+
+      // Leading days from previous month
+      for (let i = firstDayIndex - 1; i >= 0; i--) {
+        const dayNum = daysInPrevMonth - i;
+        const prevMonth = month === 0 ? 11 : month - 1;
+        const prevYear = month === 0 ? year - 1 : year;
+        const dStr = toDateString(new Date(prevYear, prevMonth, dayNum));
+        days.push({
+          dateStr: dStr,
+          dayNumber: dayNum,
+          isCurrentMonth: false,
+          items: eventsByDate.get(dStr) ?? [],
+        });
+      }
+
+      // Days in current month
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dStr = toDateString(new Date(year, month, d));
+        days.push({
+          dateStr: dStr,
+          dayNumber: d,
+          isCurrentMonth: true,
+          items: eventsByDate.get(dStr) ?? [],
+        });
+      }
+
+      // Trailing days from next month to complete 42 days (6 weeks)
+      const remaining = 42 - days.length;
+      for (let d = 1; d <= remaining; d++) {
+        const nextMonth = month === 11 ? 0 : month + 1;
+        const nextYear = month === 11 ? year + 1 : year;
+        const dStr = toDateString(new Date(nextYear, nextMonth, d));
+        days.push({
+          dateStr: dStr,
+          dayNumber: d,
+          isCurrentMonth: false,
+          items: eventsByDate.get(dStr) ?? [],
+        });
+      }
+
+      return days;
+    },
+    [eventsByDate],
+  );
+
+  const currentMonthDays = useMemo(
+    () => getCalendarDays(viewYear, viewMonth),
+    [getCalendarDays, viewYear, viewMonth],
+  );
+
+  const prevMonth = () => {
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear(viewYear - 1);
+    } else {
+      setViewMonth(viewMonth - 1);
+    }
+  };
+
+  const nextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear(viewYear + 1);
+    } else {
+      setViewMonth(viewMonth + 1);
+    }
+  };
+
+  const jumpToToday = () => {
+    const t = new Date();
+    setViewYear(t.getFullYear());
+    setViewMonth(t.getMonth());
+    setSelectedDate(todayString());
+  };
+
+  const handleSelectDay = (dateStr: string) => {
+    setSelectedDate(dateStr);
+    const parts = dateStr.split("-").map(Number);
+    if (parts.length === 3) {
+      setViewYear(parts[0]);
+      setViewMonth(parts[1] - 1);
+    }
+    if (expandedYear) {
+      setExpandedYear(false);
+    }
+  };
+
+  const submitNl = () => {
     const text = nl.trim();
     if (!text || running) return;
     void runPrompt(text);
     setNl("");
   };
 
-  const remove = (id: string) => {
+  const removeEvent = (id: string) => {
     void api.deleteEvent(id).then(load);
   };
 
-  const byDay = new Map<string, CalendarEvent[]>();
-  for (const e of [...events].sort((a, b) => a.start_ts - b.start_ts)) {
-    const k = dayKey(e.start_ts);
-    const bucket = byDay.get(k);
-    if (bucket) bucket.push(e);
-    else byDay.set(k, [e]);
-  }
+  const handleCreateEvent = async () => {
+    if (!newTitle.trim() || savingEvent) return;
+    try {
+      setSavingEvent(true);
+      const [sh, sm] = newStartTime.split(":").map(Number);
+      const [eh, em] = newEndTime.split(":").map(Number);
 
-  const thisYear = new Date().getFullYear();
+      const parts = selectedDate.split("-").map(Number);
+      const startDate = new Date(parts[0], parts[1] - 1, parts[2], sh || 9, sm || 0);
+      const endDate = new Date(parts[0], parts[1] - 1, parts[2], eh || 10, em || 0);
+
+      const startTs = Math.floor(startDate.getTime() / 1000);
+      const endTs = Math.max(startTs + 1800, Math.floor(endDate.getTime() / 1000));
+
+      await api.createEvent({
+        title: newTitle.trim(),
+        start: startTs,
+        end: endTs,
+        kind: newKind,
+        description: newDesc.trim(),
+      });
+
+      setNewTitle("");
+      setNewDesc("");
+      setShowAddForm(false);
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to create event");
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
+  const selectedEvents = eventsByDate.get(selectedDate) ?? [];
+  const dateInfo = formatDisplayDate(selectedDate);
 
   return (
-    <div className="space-y-5">
-      {/* Year nav matching the screenshot */}
-      <div
-        className="panel bg-obsidian flex items-center justify-between p-4"
-        style={{ borderRadius: "999px" }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            /* back button logic if any, or just visual */
-          }}
-          className="btn bg-void border-hairline shadow-none size-[46px] rounded-full p-0 flex items-center justify-center text-dim hover:text-fg transition-colors"
-        >
-          <Chevron dir="prev" />
-        </button>
-
-        <div className="flex items-center gap-4">
-          <div className="bg-calendar size-12 rounded-2xl flex items-center justify-center text-fg">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.8}
-            >
-              <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
-              <path d="M3.5 10h17M8.5 3v4M15.5 3v4" />
-            </svg>
-          </div>
-          <div className="flex flex-col justify-center">
-            <span className="type-tagline text-[16px] text-dim leading-none mb-1">
-              Your year at a glance
-            </span>
-            <span className="type-display text-[32px] leading-none text-fg">
-              CALENDAR {year}
+    <div className={`h-full flex flex-col min-h-0 ${expandedYear ? "overflow-y-auto space-y-4 pr-1" : "overflow-hidden space-y-3"}`}>
+      {/* Top Header — Blueprint Aesthetic */}
+      <div className="panel bg-obsidian border-2 border-fg p-3 shadow-[3px_3px_0px_#000] flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="type-display text-xl sm:text-[22px]">CALENDAR & TIMETABLE</span>
+            <span className="type-mono text-[10px] bg-[#68D391] text-black px-2 py-0.5 border-2 border-black font-extrabold uppercase shadow-[2px_2px_0px_#000]">
+              {events.length} EVENTS
             </span>
           </div>
+          <p className="type-mono text-[11px] text-muted mt-0.5">
+            Blueprint schedule, agenda & AI calendar agent
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {year !== thisYear && (
-            <button
-              type="button"
-              onClick={() => setYear(thisYear)}
-              className="btn bg-calendar border-none shadow-none text-fg px-5"
-            >
-              This Year
-            </button>
-          )}
           <button
             type="button"
-            onClick={() => setYear(year - 1)}
-            className="btn bg-void border-hairline shadow-none size-[46px] rounded-full p-0 flex items-center justify-center text-dim hover:text-fg transition-colors"
+            onClick={jumpToToday}
+            className="btn bg-obsidian border-2 border-black shadow-[2px_2px_0px_#000] hover:bg-elevated text-xs py-1 px-3 font-bold uppercase"
           >
-            <Chevron dir="prev" />
+            Today
           </button>
           <button
             type="button"
-            onClick={() => setYear(year + 1)}
-            className="btn bg-void border-hairline shadow-none size-[46px] rounded-full p-0 flex items-center justify-center text-dim hover:text-fg transition-colors"
+            onClick={() => setExpandedYear(!expandedYear)}
+            className="btn bg-[#2D3748] text-white hover:bg-black border-2 border-black shadow-[2px_2px_0px_#000] text-xs py-1 px-3.5 font-bold uppercase tracking-wider"
           >
-            <Chevron dir="next" />
+            {expandedYear ? "Focus Month View" : "Expand Full Year"}
           </button>
         </div>
       </div>
 
-      {/* Ask the agent bar */}
-      <div
-        className="panel bg-obsidian flex items-center gap-3 px-4 py-2"
-        style={{ borderRadius: "999px" }}
-      >
-        <Sparkle />
+      {/* Ask the Calendar Agent Command Bar — Blueprint Console */}
+      <div className="panel bg-obsidian border-2 border-fg p-2.5 shadow-[2px_2px_0px_#000] flex items-center gap-3 shrink-0">
+        <span className="type-mono text-sm font-bold text-[#68D391] px-1">&gt;_</span>
         <input
           value={nl}
           onChange={(e) => setNl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Ask the calendar agent — e.g. 'Find me a free hour next week for lunch'"
-          className="min-w-0 flex-1 bg-transparent py-2 text-[14px] text-fg
-            placeholder:text-muted focus:outline-none"
+          onKeyDown={(e) => e.key === "Enter" && submitNl()}
+          placeholder="Ask the calendar agent — e.g. 'Schedule team sync next Tuesday at 2pm' or 'What exams are coming up?'"
+          className="min-w-0 flex-1 bg-transparent py-1 text-xs text-fg placeholder:text-muted focus:outline-none font-mono"
           aria-label="Ask the calendar agent"
         />
         <button
           type="button"
-          onClick={submit}
+          onClick={submitNl}
           disabled={running || !nl.trim()}
-          className="btn bg-calendar border-none shadow-none text-fg shrink-0 px-5"
+          className="btn bg-[#68D391] text-black border-2 border-black shadow-[2px_2px_0px_#000] text-xs px-3.5 py-1 font-extrabold uppercase hover:brightness-95 disabled:opacity-50 shrink-0"
         >
-          Ask Agent
+          {running ? "Processing..." : "Ask Agent"}
         </button>
       </div>
 
-      {err ? (
-        <p className="inset-flat bg-warn-soft px-3 py-2 text-[12px] text-fg">
-          {err}
-        </p>
-      ) : null}
+      {err && (
+        <div className="p-2.5 bg-danger-soft border-2 border-fg text-xs text-fg flex items-center justify-between shadow-[2px_2px_0px_#000] shrink-0">
+          <span>{err}</span>
+          <button type="button" onClick={() => setErr(null)} className="text-xs font-bold underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
-      {events.length === 0 && !err ? (
-        <Empty>
-          Nothing scheduled yet — ask the agent, or say it in plain words.
-        </Empty>
-      ) : null}
+      {/* Main View: Single Month (Fits 100% on screen) vs 12-Month Overview (Scrolls) */}
+      {!expandedYear ? (
+        /* SINGLE MONTH VIEW — Takes up the full space with Blueprint Month Grid + Agenda Split */
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 min-h-0 overflow-hidden">
+          {/* Left: Large Interactive Month Calendar */}
+          <div className="panel bg-obsidian border-2 border-fg p-3.5 shadow-[4px_4px_0px_#000] flex flex-col space-y-2 min-h-0 h-full overflow-hidden">
+            {/* Month & Year Navigation Header */}
+            <div className="flex items-center justify-between pb-2 border-b-2 border-hairline shrink-0">
+              <button
+                type="button"
+                onClick={prevMonth}
+                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] p-1 px-2.5 text-xs hover:bg-elevated font-bold"
+                aria-label="Previous Month"
+              >
+                ◀
+              </button>
+              <div className="text-center">
+                <span className="type-display text-base tracking-wide font-extrabold text-fg uppercase">
+                  {MONTH_NAMES[viewMonth]} {viewYear}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={nextMonth}
+                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] p-1 px-2.5 text-xs hover:bg-elevated font-bold"
+                aria-label="Next Month"
+              >
+                ▶
+              </button>
+            </div>
 
-      <div className="flex justify-between items-center px-2">
-        <h2 className="type-display text-[20px] text-fg">
-          {expandedYear ? "FULL YEAR" : "CURRENT MONTH"}
-        </h2>
-        <button
-          type="button"
-          onClick={() => setExpandedYear(!expandedYear)}
-          className="btn bg-obsidian border border-hairline shadow-none hover:bg-elevated transition-colors px-4 py-1.5"
-          style={{ borderRadius: "var(--radius)" }}
-        >
-          <span className="type-mono text-[11px] font-semibold flex items-center gap-2">
-            {expandedYear ? "Collapse Year" : "Expand Full Year"}
-          </span>
-        </button>
-      </div>
+            {/* Weekday Names Header */}
+            <div className="grid grid-cols-7 text-center font-mono text-[10px] text-muted uppercase font-bold py-0.5 border-b border-hairline shrink-0">
+              {WEEK_DAYS.map((d) => (
+                <div key={d}>{d}</div>
+              ))}
+            </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {MONTHS.map((_, m) => {
-          // If not expanded, only show the current active month for this year
-          const currentMonth = new Date().getMonth();
-          if (!expandedYear && (m !== currentMonth || year !== thisYear)) {
-             // If we're viewing a past/future year and not expanded, show January by default
-             if (!expandedYear && year !== thisYear && m !== 0) return null;
-             // If we're viewing this year and not expanded, show the current month
-             if (!expandedYear && year === thisYear && m !== currentMonth) return null;
-          }
+            {/* Large Blueprint 42-Cell Calendar Grid — 6 rows evenly fitting container */}
+            <div className="grid grid-cols-7 grid-rows-6 gap-1 flex-1 min-h-0 h-full overflow-hidden">
+              {currentMonthDays.map((cd, idx) => {
+                const isSelected = cd.dateStr === selectedDate;
+                const isToday = cd.dateStr === todayString();
 
-          return (
-            <Month
-              key={m}
-              year={year}
-              month={m}
-              byDay={byDay}
-              onPick={setPicked}
-            />
-          );
-        })}
-      </div>
+                return (
+                  <button
+                    key={`${cd.dateStr}-${idx}`}
+                    type="button"
+                    onClick={() => handleSelectDay(cd.dateStr)}
+                    className={`relative p-1 flex flex-col items-start justify-start font-mono text-xs transition-all border text-left overflow-hidden h-full ${
+                      isSelected
+                        ? "bg-[#68D391] text-black font-extrabold border-2 border-black shadow-[2px_2px_0px_#000] z-10"
+                        : isToday
+                          ? "bg-elevated font-bold text-fg border-2 border-fg"
+                          : cd.isCurrentMonth
+                            ? "bg-void text-fg border-hairline hover:border-fg hover:bg-elevated"
+                            : "bg-void/40 text-muted/40 border-hairline/40 hover:bg-elevated"
+                    }`}
+                  >
+                    <div className="w-full flex items-center justify-between">
+                      <span className={`text-[11px] font-bold leading-none ${isSelected ? "text-black" : ""}`}>
+                        {cd.dayNumber}
+                      </span>
+                      {cd.items.length > 0 && !isSelected && (
+                        <span className="size-1.5 rounded-full bg-[#FF3366]" />
+                      )}
+                    </div>
 
-      {picked && (
-        <DayModal
-          date={picked}
-          items={byDay.get(picked.toDateString()) ?? []}
-          onClose={() => setPicked(null)}
-          onDelete={remove}
-        />
+                    {/* Event Chips within Day Cell */}
+                    <div className="w-full mt-0.5 space-y-0.5 overflow-hidden">
+                      {cd.items.slice(0, 2).map((item) => {
+                        const meta = KIND_META[item.kind] ?? KIND_META.event;
+                        return (
+                          <div
+                            key={item.id}
+                            className={`w-full truncate text-[9px] px-1 py-0.2 rounded-none font-mono flex items-center gap-1 leading-tight ${
+                              isSelected
+                                ? "bg-black text-white font-bold"
+                                : "bg-obsidian border border-hairline text-fg"
+                            }`}
+                            title={`${item.title} (${clockTime(item.start_ts)})`}
+                          >
+                            <span
+                              className="size-1 rounded-full shrink-0"
+                              style={{ background: isSelected ? "#68D391" : meta.dot }}
+                            />
+                            <span className="truncate">{item.title}</span>
+                          </div>
+                        );
+                      })}
+                      {cd.items.length > 2 && (
+                        <div
+                          className={`text-[8px] font-bold px-0.5 leading-none ${
+                            isSelected ? "text-black" : "text-muted"
+                          }`}
+                        >
+                          +{cd.items.length - 2} more
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right: Selected Date Schedule, Agenda & Quick Add */}
+          <div className="panel bg-obsidian border-2 border-fg p-4 shadow-[4px_4px_0px_#000] flex flex-col min-h-0 h-full overflow-hidden">
+            {/* Date Header */}
+            <div className="border-b-2 border-hairline pb-3 shrink-0">
+              <div className="flex items-center justify-between">
+                <p className="type-mono text-xs text-muted tracking-widest uppercase font-bold">
+                  {dateInfo.isToday ? "TODAY" : "SELECTED DATE"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="type-mono text-xs font-bold text-fg hover:underline uppercase"
+                >
+                  {showAddForm ? "✕ Close Form" : "+ Add Event"}
+                </button>
+              </div>
+
+              <h2 className="type-display text-[28px] sm:text-[34px] leading-tight text-fg font-extrabold mt-1">
+                {dateInfo.numeric}
+              </h2>
+              <p className="text-xs text-dim font-medium mt-0.5">
+                {dateInfo.full}
+              </p>
+            </div>
+
+            {/* Quick Add Event Form */}
+            {showAddForm && (
+              <div className="p-4 bg-void border-2 border-fg space-y-3 shadow-[2px_2px_0px_#000] animate-slide-in">
+                <span className="type-mono text-[11px] font-bold uppercase text-fg block border-b border-hairline pb-1">
+                  New Event / Schedule
+                </span>
+
+                <div>
+                  <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="cal-title">
+                    Event Title
+                  </label>
+                  <input
+                    id="cal-title"
+                    type="text"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="e.g. Physics Revision, Math Exam, Team Sync"
+                    className="w-full bg-obsidian border-2 border-hairline focus:border-fg p-2 text-xs font-medium outline-none text-fg"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="cal-start">
+                      Start Time
+                    </label>
+                    <input
+                      id="cal-start"
+                      type="time"
+                      value={newStartTime}
+                      onChange={(e) => setNewStartTime(e.target.value)}
+                      className="w-full bg-obsidian border-2 border-hairline p-1.5 text-xs text-fg font-mono outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="cal-end">
+                      End Time
+                    </label>
+                    <input
+                      id="cal-end"
+                      type="time"
+                      value={newEndTime}
+                      onChange={(e) => setNewEndTime(e.target.value)}
+                      className="w-full bg-obsidian border-2 border-hairline p-1.5 text-xs text-fg font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="cal-kind">
+                    Type
+                  </label>
+                  <select
+                    id="cal-kind"
+                    value={newKind}
+                    onChange={(e) => setNewKind(e.target.value as any)}
+                    className="w-full bg-obsidian border-2 border-hairline p-2 text-xs text-fg font-mono outline-none"
+                  >
+                    <option value="event">Event / Meeting</option>
+                    <option value="revision">Revision Block</option>
+                    <option value="deadline">Deadline</option>
+                    <option value="exam">Exam</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="cal-desc">
+                    Description (optional)
+                  </label>
+                  <input
+                    id="cal-desc"
+                    type="text"
+                    value={newDesc}
+                    onChange={(e) => setNewDesc(e.target.value)}
+                    placeholder="Notes or location..."
+                    className="w-full bg-obsidian border-2 border-hairline focus:border-fg p-2 text-xs font-medium outline-none text-fg"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(false)}
+                    className="btn bg-obsidian border border-hairline px-3 py-1.5 text-xs uppercase"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateEvent}
+                    disabled={!newTitle.trim() || savingEvent}
+                    className="btn bg-[#68D391] text-black border-2 border-black shadow-[2px_2px_0px_#000] px-4 py-1.5 text-xs font-extrabold uppercase hover:brightness-95"
+                  >
+                    {savingEvent ? "Saving..." : "Save Event"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Events on this Day */}
+            <div className="flex-1 min-h-0 space-y-2.5 overflow-y-auto pr-1">
+              <div className="flex items-center justify-between border-b border-hairline pb-1 mb-2">
+                <span className="type-mono text-[10px] font-bold uppercase text-muted tracking-wider">
+                  Day Schedule ({selectedEvents.length})
+                </span>
+              </div>
+
+              {selectedEvents.length === 0 ? (
+                <div className="p-8 text-center border-2 border-dashed border-hairline">
+                  <p className="type-display text-base text-fg mb-1">
+                    No events scheduled
+                  </p>
+                  <p className="type-mono text-xs text-muted max-w-xs mx-auto mb-4">
+                    This day is currently open. Ask the agent or click below to schedule revision or events.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(true)}
+                    className="btn bg-[#2D3748] text-white hover:bg-black text-xs px-5 py-2 border-2 border-black shadow-[3px_3px_0px_#000] font-bold uppercase tracking-wider"
+                  >
+                    + Add Event
+                  </button>
+                </div>
+              ) : (
+                selectedEvents.map((e) => {
+                  const meta = KIND_META[e.kind] ?? KIND_META.event;
+                  return (
+                    <div
+                      key={e.id}
+                      className="p-3 bg-void border-2 border-fg shadow-[3px_3px_0px_#000] space-y-1.5 group"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className="type-mono text-[9px] font-extrabold uppercase px-1.5 py-0.5 border border-black"
+                          style={{ background: meta.dot, color: "#000" }}
+                        >
+                          {meta.label}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="type-mono text-[11px] font-bold text-fg">
+                            {clockTime(e.start_ts)} – {clockTime(e.end_ts)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeEvent(e.id)}
+                            className="text-xs text-muted hover:text-danger font-bold ml-1"
+                            title="Delete event"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+
+                      <h4 className="text-xs font-bold text-fg leading-snug">
+                        {e.title}
+                      </h4>
+
+                      {e.description && (
+                        <p className="text-[11px] text-dim leading-normal font-sans">
+                          {e.description}
+                        </p>
+                      )}
+
+                      {e.source && e.source !== "local" && (
+                        <div className="pt-1">
+                          <span className="type-mono text-[9px] text-muted uppercase">
+                            Source: {e.source}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* 12-MONTH OVERVIEW — Pressed to compact normal size for all 12 months */
+        <div className="flex-1 flex flex-col space-y-4 min-h-0">
+          <div className="flex items-center justify-between border-b-2 border-hairline pb-2">
+            <div>
+              <span className="type-display text-xl font-extrabold text-fg uppercase">
+                {viewYear} FULL YEAR AT A GLANCE
+              </span>
+              <p className="type-mono text-xs text-muted">
+                Click any month or date to zoom into full size
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setViewYear(viewYear - 1)}
+                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] px-3 py-1 text-xs font-bold"
+              >
+                ◀ {viewYear - 1}
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewYear(viewYear + 1)}
+                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] px-3 py-1 text-xs font-bold"
+              >
+                {viewYear + 1} ▶
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpandedYear(false)}
+                className="btn bg-[#68D391] text-black border-2 border-black shadow-[2px_2px_0px_#000] px-4 py-1 text-xs font-extrabold uppercase ml-2"
+              >
+                Return to Month View
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto">
+            {MONTH_NAMES.map((mName, mIdx) => {
+              const mDays = getCalendarDays(viewYear, mIdx);
+              const isCurrentViewMonth = mIdx === viewMonth;
+
+              return (
+                <div
+                  key={mName}
+                  className={`panel bg-obsidian border-2 p-3 shadow-[3px_3px_0px_#000] flex flex-col space-y-2 transition-colors ${
+                    isCurrentViewMonth ? "border-[#68D391]" : "border-fg"
+                  }`}
+                >
+                  {/* Month Card Header */}
+                  <div
+                    className="flex items-center justify-between pb-1.5 border-b border-hairline cursor-pointer"
+                    onClick={() => {
+                      setViewMonth(mIdx);
+                      setExpandedYear(false);
+                    }}
+                    title="Click to zoom in to this month"
+                  >
+                    <span className="type-display text-sm font-bold uppercase text-fg hover:underline">
+                      {mName}
+                    </span>
+                    <span className="type-mono text-[10px] text-muted">
+                      {mDays.reduce((acc, d) => (d.isCurrentMonth ? acc + d.items.length : acc), 0)} events
+                    </span>
+                  </div>
+
+                  {/* Days of Week initials */}
+                  <div className="grid grid-cols-7 text-center font-mono text-[9px] text-muted uppercase font-bold">
+                    {WEEK_DAYS_SHORT.map((d, i) => (
+                      <div key={i}>{d}</div>
+                    ))}
+                  </div>
+
+                  {/* Compact 42-day cells — pressed to normal size */}
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {mDays.map((cd, dIdx) => {
+                      const isToday = cd.dateStr === todayString();
+                      const isSelected = cd.dateStr === selectedDate;
+
+                      return (
+                        <button
+                          key={`${cd.dateStr}-${dIdx}`}
+                          type="button"
+                          onClick={() => handleSelectDay(cd.dateStr)}
+                          className={`relative h-6 flex flex-col items-center justify-center font-mono text-[10px] transition-all ${
+                            isSelected
+                              ? "bg-[#68D391] text-black font-extrabold border border-black"
+                              : isToday
+                                ? "bg-elevated font-bold text-fg border border-fg"
+                                : cd.isCurrentMonth
+                                  ? "text-fg hover:bg-elevated"
+                                  : "text-muted/30 hover:bg-elevated"
+                          }`}
+                        >
+                          <span>{cd.dayNumber}</span>
+                          {cd.items.length > 0 && (
+                            <span
+                              className={`absolute bottom-0.5 size-1 rounded-full ${
+                                isSelected ? "bg-black" : "bg-[#FF3366]"
+                              }`}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );

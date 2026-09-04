@@ -88,7 +88,7 @@ _FILLER = " \t\r\n,.!?…—-"
 # than unmentioned.
 _AGENT_BLURB: dict[str, str] = {
     "research": "look things up on the web and in arXiv",
-    "file": "read and write files inside the folders .conca allows, and run Python",
+    "file": "read/write files, run Python, execute host OS shell commands (e.g. to open media), and track media state",
     "scheduler": "set reminders and recurring jobs",
     "calendar": "check your diary, find a slot, book or cancel something",
     "email": "read your inbox and draft replies — sending needs your approval",
@@ -107,6 +107,7 @@ _AGENT_BLURB: dict[str, str] = {
         "read a Solana wallet's balances and history, and prepare a transfer for "
         "you to sign yourself — it never holds a key"
     ),
+    "desktop": "read your screen and physically automate your mouse and keyboard",
 }
 
 
@@ -156,6 +157,7 @@ create_event use "title", "start", "end". For send_email use "to", "subject", \
 correct; never pad to look thorough.
 - If the request needs no agent at all, return an empty subtasks list and put \
 the answer in `reasoning`.
+- CRITICAL: You must formulate all reasoning and thoughts strictly in the first-person point of view (e.g., "I am checking the calendar", "I will search the web for this", "I found the answer").
 """
 
 SYNTHESIS_PROMPT = """\
@@ -671,7 +673,7 @@ class Orchestrator:
                 self.broker.subtask(ctx.session_id, st.to_public())
                 self.broker.thought(
                     ctx.session_id,
-                    f"{st.agent}: [HALO Rejection] Operation blocked by human oversight: {outcome.reason}",
+                    f"{st.agent}: I cannot proceed because the human operator blocked this action: {outcome.reason}",
                     model=st.model_used,
                     agent=st.agent,
                 )
@@ -692,7 +694,7 @@ class Orchestrator:
             self.broker.subtask(ctx.session_id, st.to_public())
             self.broker.thought(
                 ctx.session_id,
-                f"{st.agent}: [Execution Error] Encountered {type(exc).__name__}: {exc}",
+                f"{st.agent}: I encountered an execution error: {type(exc).__name__}: {exc}",
                 model=st.model_used,
                 agent=st.agent,
             )
@@ -710,7 +712,7 @@ class Orchestrator:
                 clean_summary = clean_summary[:177] + "..."
             self.broker.thought(
                 ctx.session_id,
-                f"{st.agent}: [Deductive Inference] Observation verified. Evaluated output: {clean_summary}",
+                f"{st.agent}: I successfully executed this task. The result is: {clean_summary}",
                 model=st.model_used,
                 agent=st.agent,
             )
@@ -718,7 +720,7 @@ class Orchestrator:
             st.status, st.error, st.result = "failed", summary, summary
             self.broker.thought(
                 ctx.session_id,
-                f"{st.agent}: [Evaluation Notice] Tool returned negative disposition: {summary[:140]}",
+                f"{st.agent}: I tried to execute this task, but it failed: {summary[:140]}",
                 model=st.model_used,
                 agent=st.agent,
             )

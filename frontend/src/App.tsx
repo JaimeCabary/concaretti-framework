@@ -99,6 +99,8 @@ export function App() {
       */}
       {role === "staff" ? (
         <StaffScreen />
+      ) : role === "student" ? (
+        <StudentScreen />
       ) : (
         <div className="min-h-dvh pt-1">
           {/* Solid cream, not a blur: nothing in this style is translucent, and a
@@ -117,7 +119,7 @@ export function App() {
           </header>
 
           <main className="mx-auto max-w-[1600px] px-4 py-4">
-            {role === "student" ? <StudentScreen /> : <PublicScreen />}
+            <PublicScreen />
           </main>
         </div>
       )}

@@ -174,11 +174,13 @@ export function TabBar<T extends string>({
  * re-rendered on each frame of the stream. Renders nothing until a run finishes,
  * so it can sit unconditionally in a column.
  */
-export function Result() {
+export function Result({ fixed = false }: { fixed?: boolean }) {
   const summary = useAgentStore((s) => s.finalSummary);
   if (!summary) return null;
   return (
-    <article className="panel px-4 py-3">
+    <article
+      className={`${fixed ? "fixed bottom-[12rem] left-1/2 z-40 w-[min(720px,calc(100vw-2rem))] -translate-x-1/2" : ""} panel px-4 py-3`}
+    >
       <h2 className="type-mono text-[10px] text-muted">Result</h2>
       <p className="mt-1.5 whitespace-pre-wrap text-[14px] leading-relaxed text-fg">
         {summary}

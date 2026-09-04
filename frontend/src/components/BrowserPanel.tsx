@@ -33,8 +33,15 @@ export function BrowserPanel() {
   const [view, setView] = useState<"shot" | "text" | "links">("shot");
 
   const go = (target?: string) => {
-    const next = (target ?? url).trim();
+    let next = (target ?? url).trim();
     if (!next || busy) return;
+
+    if (!/^https?:\/\//i.test(next) && !next.includes(".") && !next.startsWith("localhost")) {
+      next = `https://www.google.com/search?q=${encodeURIComponent(next)}`;
+    } else if (!/^https?:\/\//i.test(next)) {
+      next = `https://${next}`;
+    }
+
     setBusy(true);
     setErr(null);
     setUrl(next);
@@ -76,17 +83,25 @@ export function BrowserPanel() {
           onKeyDown={(e) => {
             if (e.key === "Enter") go();
           }}
-          placeholder="example.com"
+          placeholder="example.com or search query..."
           aria-label="Address"
           className="field flex-1 font-mono text-[12px]"
         />
         <button
           type="button"
-          className="btn btn-primary px-3 py-1.5 text-[12px]"
+          className="btn btn-primary p-2 text-fg flex items-center justify-center bg-council-soft"
           disabled={busy || !url.trim()}
           onClick={() => go()}
+          title="Search or Go"
         >
-          {busy ? "Loading" : "Open"}
+          {busy ? (
+            <Spinner label="" />
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="size-4">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          )}
         </button>
       </div>
 
@@ -130,15 +145,12 @@ export function BrowserPanel() {
 
           <div className="max-h-[58vh] overflow-auto">
             {view === "shot" ? (
-              page.image ? (
-                <img
-                  src={page.image}
-                  alt={`Rendered screenshot of ${page.title || page.url}`}
-                  className="block w-full"
-                />
-              ) : (
-                <Empty>{page.image_error ?? "No capture for this page."}</Empty>
-              )
+              <iframe
+                src={page.url ?? url}
+                title={`Browser view for ${page.title || page.url}`}
+                className="block w-full min-h-[58vh] border-none bg-white"
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+              />
             ) : view === "text" ? (
               <pre className="whitespace-pre-wrap p-3 text-[12px] leading-relaxed text-fg">
                 {page.text}

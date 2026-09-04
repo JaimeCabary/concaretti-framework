@@ -331,12 +331,14 @@ def embed(text: str) -> tuple[list[float], str]:
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
-    id          TEXT PRIMARY KEY,
-    created_at  REAL NOT NULL,
-    role        TEXT,
-    title       TEXT,
-    summary     TEXT DEFAULT '',
-    prompt      TEXT DEFAULT ''
+    id            TEXT PRIMARY KEY,
+    created_at    REAL NOT NULL,
+    role          TEXT,
+    title         TEXT,
+    summary       TEXT DEFAULT '',
+    prompt        TEXT DEFAULT '',
+    is_temporary  INTEGER DEFAULT 0,
+    deleted       INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS context_entries (
@@ -613,6 +615,24 @@ class MemoryStore:
         )
         self._conn.commit()
         return sid
+
+    def ensure_session(
+        self, session_id: str, role: str | None = None, prompt: str = "", title: str = ""
+    ) -> str:
+        """
+        Create a session row if it doesn't already exist.
+        Used for recurring tasks like cron jobs that share a single session window.
+        """
+        if contains_secret_material(prompt) or contains_secret_material(title):
+            prompt = SECRET_PLACEHOLDER
+            title = SECRET_PLACEHOLDER
+        self._conn.execute(
+            "INSERT OR IGNORE INTO sessions (id, created_at, role, title, prompt) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (session_id, time.time(), role, title or prompt[:80], prompt),
+        )
+        self._conn.commit()
+        return session_id
 
     def list_sessions(self, limit: int = 40) -> list[dict[str, Any]]:
         rows = self._conn.execute(
@@ -1070,6 +1090,11 @@ class MemoryStore:
             "SELECT * FROM diary_entries ORDER BY day DESC, ts DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def delete_diary_entry(self, entry_id: str) -> bool:
+        cur = self._conn.execute("DELETE FROM diary_entries WHERE id = ?", (entry_id,))
+        self._conn.commit()
+        return cur.rowcount > 0
 
     # ── calendar ─────────────────────────────────────────────────────────
 

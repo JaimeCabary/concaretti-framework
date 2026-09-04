@@ -50,10 +50,22 @@ def start_backend():
     from main import app
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
 
-
 def main():
+    # Read operator profile if present
+    profile_file = ROOT_DIR / "user_profile.json"
+    user_name = ""
+    if profile_file.exists():
+        try:
+            import json
+            p_data = json.loads(profile_file.read_text(encoding="utf-8"))
+            user_name = p_data.get("name", "")
+        except Exception:
+            pass
+
     print("=" * 60)
     print("  Concaretti — Native Desktop Shell (PyView)")
+    if user_name:
+        print(f"  Welcome back, {user_name}!")
     print("=" * 60)
 
     # 1. Start backend if not already running
@@ -86,6 +98,9 @@ def main():
             pass
 
     # 3. Create native desktop window
+    storage_dir = ROOT_DIR / ".webview_data"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
     print(f"[*] Opening native window pointing to {target_url} ...")
     window = webview.create_window(
         title="Concaretti",
@@ -97,8 +112,8 @@ def main():
         easy_drag=False,
     )
     
-    # 4. Start native GUI loop
-    webview.start(debug=False)
+    # 4. Start native GUI loop with persistent storage
+    webview.start(debug=False, private_mode=False, storage_path=str(storage_dir))
 
 
 if __name__ == "__main__":

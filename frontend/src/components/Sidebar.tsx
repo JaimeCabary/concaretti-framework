@@ -90,6 +90,12 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M12 7.6V12l3 2" />
     </>
   ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" />
+    </>
+  ),
 };
 
 function Icon({ name }: { name: string }) {
@@ -141,7 +147,7 @@ function Item<T extends string>({
       className={`flex w-full items-center gap-3 rounded-full py-2 text-left
         text-[14px] transition-colors ${collapsed ? "justify-center px-0" : "px-3"} ${
           active
-            ? "font-semibold text-fg"
+            ? "text-fg"
             : "text-dim hover:bg-elevated hover:text-fg"
         }`}
       style={
@@ -254,14 +260,14 @@ export function Sidebar<T extends string>({
     <nav
       role="tablist"
       aria-label="Sections"
-      className={`relative flex shrink-0 flex-col gap-1 pb-4 pt-5
+      className={`relative flex shrink-0 flex-col gap-1 pb-4
         lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto
         ${open ? "w-[236px] px-3" : "w-[68px] px-2"}`}
       style={{ borderRight: "var(--border)" }}
     >
       {/* Header with Logo and Sidebar Toggle Icon */}
       {open ? (
-        <div className="sticky top-0 z-10 bg-void -mt-5 pt-3 pb-3 mb-6 flex items-center justify-between px-2">
+        <div className="sticky top-0 z-10 bg-void pt-5 pb-3 mb-6 flex items-center justify-between px-2">
           <span className="flex items-center gap-2.5">
             <ConcarettiLogo />
             <span className="flex flex-col leading-none">
@@ -295,7 +301,7 @@ export function Sidebar<T extends string>({
           </button>
         </div>
       ) : (
-        <div className="sticky top-0 z-10 bg-void -mt-5 pt-3 pb-3 mb-6 flex justify-center">
+        <div className="sticky top-0 z-10 bg-void pt-5 pb-3 mb-6 flex justify-center">
           <button
             type="button"
             onClick={() => setOpen(true)}

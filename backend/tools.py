@@ -41,6 +41,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import subprocess
+import mss
+import pyautogui
+import psutil
 
 from memory import KEY_REFUSAL, MemoryStore, contains_secret_material
 from rotator import get_rotator
@@ -1119,6 +1123,76 @@ async def run_python(payload: dict, ctx: ExecContext) -> dict:
     return _ok(out.strip() or "(no output)", stdout=out, stderr=err)
 
 
+async def os_execute(payload: dict, ctx: ExecContext) -> dict:
+    command = str(payload.get("command", "")).strip()
+    if not command:
+        return _fail("no command supplied")
+    safe, reason = is_safe(ctx.policy, command)
+    if not safe:
+        return _fail(f"Refused by .conca: {reason}")
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+    except asyncio.TimeoutError:
+        return _fail("execution exceeded 20s limit")
+    except Exception as exc:
+        return _fail(f"execution failed: {exc}")
+    
+    out = stdout.decode("utf-8", "replace")[:4000]
+    return _ok(out.strip() or "(no output)", stdout=out)
+
+
+async def media_state(payload: dict, ctx: ExecContext) -> dict:
+    media_apps = ["spotify", "vlc", "wmplayer", "music", "chrome", "msedge"]
+    found = []
+    for p in psutil.process_iter(['name']):
+        try:
+            name = p.info['name'].lower()
+            if any(m in name for m in media_apps):
+                found.append(name)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    if not found:
+        return _ok("No media players appear to be active.")
+    return _ok(f"Active media-related processes: {', '.join(set(found))}")
+
+
+async def mouse_move(payload: dict, ctx: ExecContext) -> dict:
+    x = int(payload.get("x", 0))
+    y = int(payload.get("y", 0))
+    duration = float(payload.get("duration", 0.5))
+    pyautogui.moveTo(x, y, duration)
+    return _ok(f"Moved mouse to ({x}, {y})")
+
+
+async def mouse_click(payload: dict, ctx: ExecContext) -> dict:
+    button = str(payload.get("button", "left"))
+    pyautogui.click(button=button)
+    return _ok(f"Clicked {button} mouse button")
+
+
+async def mouse_drag(payload: dict, ctx: ExecContext) -> dict:
+    x = int(payload.get("x", 0))
+    y = int(payload.get("y", 0))
+    duration = float(payload.get("duration", 0.5))
+    pyautogui.dragTo(x, y, duration)
+    return _ok(f"Dragged mouse to ({x}, {y})")
+
+
+async def keyboard_type(payload: dict, ctx: ExecContext) -> dict:
+    text = str(payload.get("text", ""))
+    if text:
+        pyautogui.write(text, interval=0.05)
+    keys = payload.get("keys", [])
+    for k in keys:
+        pyautogui.press(k)
+    return _ok(f"Typed text and pressed keys: {keys}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Scheduler
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1796,13 +1870,13 @@ async def _browser_page(pw: Any) -> tuple[Any, Any, str]:
 
     for channel in ("chrome", "msedge"):
         try:
-            browser = await pw.chromium.launch(channel=channel, headless=True)
+            browser = await pw.chromium.launch(channel=channel, headless=False)
             return browser, await browser.new_page(), f"local:{channel}"
         except Exception as exc:
             attempts.append(f"{channel} → {type(exc).__name__}")
 
     try:
-        browser = await pw.chromium.launch(headless=True)
+        browser = await pw.chromium.launch(headless=False)
         return browser, await browser.new_page(), "bundled:chromium"
     except Exception as exc:
         attempts.append(f"bundled → {type(exc).__name__}")
@@ -4307,6 +4381,12 @@ TOOL_REGISTRY: dict[tuple[str, str], Any] = {
     ("file", "write_file"): write_file,
     ("file", "list_dir"): list_dir,
     ("file", "python_execute"): run_python,
+    ("file", "os_execute"): os_execute,
+    ("file", "media_state"): media_state,
+    ("desktop", "mouse_move"): mouse_move,
+    ("desktop", "mouse_click"): mouse_click,
+    ("desktop", "mouse_drag"): mouse_drag,
+    ("desktop", "keyboard_type"): keyboard_type,
     ("file", "project_create"): project_create,
     ("scheduler", "set_reminder"): set_reminder,
     ("scheduler", "list_scheduled"): list_scheduled,

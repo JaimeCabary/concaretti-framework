@@ -118,6 +118,24 @@ const CATALOGUE: AgentMeta[] = [
     hint: "",
   },
   {
+    key: "shopper",
+    label: "Shopper",
+    blurb: "Product search, price comparison & cart",
+    hint: "Find prices for ",
+  },
+  {
+    key: "market",
+    label: "Market",
+    blurb: "Stock research, quotes & paper trade",
+    hint: "Analyse ",
+  },
+  {
+    key: "chain",
+    label: "Chain",
+    blurb: "Solana balance and transaction staging",
+    hint: "Check balance for ",
+  },
+  {
     key: "health",
     label: "Health",
     blurb: "Process telemetry",
@@ -133,16 +151,10 @@ export function AgentDock({
   className?: string;
 }) {
   const granted = useAgentStore((s) => s.agents);
-  const conca = useAgentStore((s) => s.conca);
-  const role = useAgentStore((s) => s.role);
-
-  const globallyEnabled = new Set(conca?.agents_enabled ?? granted);
   const grantedSet = new Set(granted);
 
-  const reasonFor = (key: string) =>
-    !globallyEnabled.has(key)
-      ? "Disabled in .conca — off for every role"
-      : `Not granted to the ${role} role`;
+  // Show only agents that the current role is actually granted
+  const visible = CATALOGUE.filter((a) => grantedSet.has(a.key));
 
   return (
     <Panel
@@ -151,48 +163,35 @@ export function AgentDock({
       className={className}
       actions={
         <span className="text-[11px] text-muted">
-          {grantedSet.size} of {CATALOGUE.length}
+          {visible.length} available
         </span>
       }
       bodyClass="overflow-y-auto"
     >
       <ul className="grid grid-cols-2 gap-1.5 px-3 py-3">
-        {CATALOGUE.map((a) => {
-          const allowed = grantedSet.has(a.key);
-          return (
-            <li key={a.key}>
-              <button
-                type="button"
-                disabled={!allowed || !onPick}
-                onClick={() => onPick?.(a.hint)}
-                title={allowed ? a.blurb : reasonFor(a.key)}
-                className={`tile w-full px-2.5 py-2 text-left ${
-                  allowed ? "" : "bg-elevated opacity-55"
-                }`}
-                // Each granted agent wears its own colour as the whole tile,
-                // which is what makes the dock scannable at sixteen entries.
-                // Withheld ones are left grey on purpose: colour reads as
-                // "available", and a greyed-out tile in full colour would say the
-                // opposite of what its title says. The fill is the pastel itself,
-                // not a wash of it — these tokens are already pale, and a 10% mix
-                // of one over white is white.
-                style={allowed ? { background: agentColor(a.key) } : undefined}
-              >
-                <span className="truncate block text-[12px] font-semibold text-fg">
-                  {a.label}
-                </span>
-                <span className="mt-0.5 block text-[10px] leading-snug text-dim">
-                  {allowed ? a.blurb : reasonFor(a.key)}
-                </span>
-              </button>
-            </li>
-          );
-        })}
+        {visible.map((a) => (
+          <li key={a.key}>
+            <button
+              type="button"
+              disabled={!onPick}
+              onClick={() => onPick?.(a.hint)}
+              title={a.blurb}
+              className="tile w-full px-2.5 py-2 text-left transition-transform active:translate-y-0.5"
+              style={{ background: agentColor(a.key) }}
+            >
+              <span className="truncate block text-[12px] font-semibold text-fg">
+                {a.label}
+              </span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-dim line-clamp-2">
+                {a.blurb}
+              </span>
+            </button>
+          </li>
+        ))}
       </ul>
       <p className="px-3 pb-3 text-[10px] leading-snug text-muted">
         Scoping comes from <code className="font-mono">.conca</code>. Picking an
-        agent only prefills your prompt — the orchestrator still decides the
-        plan and the policy check still runs.
+        agent prefills your prompt.
       </p>
     </Panel>
   );

@@ -172,6 +172,13 @@ export const api = {
     }),
   /** Clears the cookie, which drops a local caller back to the staff default. */
   logout: () => post<{ ok: boolean; role: Role }>("/api/auth/logout"),
+  getProfile: () =>
+    request<{ name: string; role: Role; onboarded: boolean }>("/api/profile"),
+  saveProfile: (data: { name: string; role: Role; onboarded: boolean }) =>
+    post<{ ok: boolean; name: string; role: Role; onboarded: boolean }>(
+      "/api/profile",
+      data,
+    ),
 
   // ── policy, security engine, models ──────────────────────────────────────
   concaStatus: () => request<ConcaStatus>("/api/conca/status"),
@@ -335,6 +342,8 @@ export const api = {
     reflection?: string;
     agent_assisted?: boolean;
   }) => post<{ ok: boolean; entry: DiaryEntry }>("/api/diary", body),
+  deleteDiaryEntry: (id: string) =>
+    request<{ ok: boolean }>(`/api/diary/${id}`, { method: "DELETE" }),
 
   // ── scheduler ────────────────────────────────────────────────────────────
   jobs: () =>
@@ -442,6 +451,8 @@ export const api = {
   /** Comma- or space-separated, up to ten. Yahoo's own suffixes: `BTC-USD`, `^GSPC`. */
   marketQuote: (symbols: string) =>
     request<QuotesResult>("/api/market/quote" + qs({ symbols })),
+  marketChart: (symbol: string, range = "1mo", interval = "1d") =>
+    request<any>("/api/market/chart" + qs({ symbol, range, interval })),
   marketFundamentals: (symbol: string) =>
     request<FundamentalsResult>("/api/market/fundamentals" + qs({ symbol })),
   marketPortfolio: () => request<PortfolioResult>("/api/market/portfolio"),

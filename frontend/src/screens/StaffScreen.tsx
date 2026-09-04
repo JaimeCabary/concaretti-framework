@@ -38,9 +38,9 @@ import { ConcaPanel } from "../components/ConcaPanel";
 import { ConnectAccounts } from "../components/ConnectAccounts";
 import { CouncilCockpit } from "../components/CouncilCockpit";
 import { DagOrchestrationStage } from "../components/DagOrchestrationStage";
+import { DocsPanel } from "../components/DocsPanel";
 import { EmailHub } from "../components/EmailHub";
 import { MarketPanel } from "../components/MarketPanel";
-import { RecallPanel } from "../components/RecallPanel";
 import { ShopperPanel } from "../components/ShopperPanel";
 
 import { Sidebar, RailGroup, type RailItem } from "../components/Sidebar";
@@ -61,6 +61,7 @@ type Tab =
   | "chain"
   | "diary"
   | "policy"
+  | "help"
   | "setup";
 
 /**
@@ -71,7 +72,7 @@ type Tab =
  * never connected.
  */
 const ITEMS: ReadonlyArray<RailItem<Tab> & { local?: boolean }> = [
-  { key: "ops", label: "Council" },
+  { key: "ops", label: "Create new chat" },
   { key: "calendar", label: "Calendar", agent: "calendar" },
   { key: "email", label: "Email", agent: "email" },
   { key: "telecom", label: "Telecom", agent: "sms" },
@@ -85,6 +86,7 @@ const ITEMS: ReadonlyArray<RailItem<Tab> & { local?: boolean }> = [
   { key: "market", label: "Market", agent: "market", secondary: true },
   { key: "chain", label: "Chain", agent: "chain", secondary: true },
   { key: "policy", label: ".conca Rules", footer: true },
+  { key: "help", label: "Documentation", footer: true },
   { key: "setup", label: "Settings", footer: true, local: true },
 ];
 
@@ -93,21 +95,33 @@ function RailSessions({ onSelectSession }: { onSelectSession?: () => void }) {
   const sessions = useAgentStore((s) => s.sessions);
   const current = useAgentStore((s) => s.sessionId);
   const attach = useAgentStore((s) => s.attachSession);
-  const clear = useAgentStore((s) => s.clearRun);
+  const [query, setQuery] = useState("");
+
+  const filtered = sessions.filter(s => 
+    (s.title || s.id).toLowerCase().includes(query.toLowerCase())
+  );
 
   return (
     <RailGroup
       label="SESSIONS"
       icon="clock"
-      action={{ title: "New prompt", onClick: clear }}
     >
+      <div className="px-3 mb-2 mt-1">
+        <input 
+          type="text" 
+          placeholder="Search..." 
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full bg-void border border-hairline rounded-md px-2 py-1 text-[11px] text-fg focus:outline-none focus:border-fg transition-colors"
+        />
+      </div>
       {sessions.length === 0 ? (
         <p className="type-mono px-3 py-1 text-[11px] text-muted">
           No runs yet
         </p>
       ) : (
         <ul className="space-y-0.5">
-          {sessions.slice(0, 8).map((s) => (
+          {filtered.slice(0, 8).map((s) => (
             <li key={s.id}>
               <button
                 type="button"
@@ -130,6 +144,11 @@ function RailSessions({ onSelectSession }: { onSelectSession?: () => void }) {
               </button>
             </li>
           ))}
+          {filtered.length === 0 && query && (
+             <li className="type-mono px-3 py-1 text-[10px] text-muted text-center italic mt-2">
+               No matches found
+             </li>
+          )}
         </ul>
       )}
     </RailGroup>
@@ -141,10 +160,34 @@ function RailProfile() {
   const role = useAgentStore((s) => s.role);
   const rotator = useAgentStore((s) => s.rotator);
   const offline = useAgentStore((s) => s.offline);
+  const userName = useAgentStore((s) => s.userName) || "shazzyazuwike@gmail.com";
+  const [open, setOpen] = useState(false);
 
   return (
-    <div
-      className="flex items-center gap-3 rounded-full border border-hairline bg-obsidian px-3 py-2"
+    <div className="relative">
+      {open && (
+        <div className="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-hairline bg-obsidian p-1.5 shadow-[0px_4px_24px_rgba(0,0,0,0.1)] z-50">
+          <p className="px-3 py-2 text-[11px] font-semibold text-fg/70 border-b border-hairline mb-1 truncate">
+            {userName}
+          </p>
+          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-dim transition-colors hover:bg-elevated hover:text-fg">
+            Settings
+          </button>
+          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-dim transition-colors hover:bg-elevated hover:text-fg flex justify-between">
+            Language
+          </button>
+          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-dim transition-colors hover:bg-elevated hover:text-fg">
+            Get help
+          </button>
+          <div className="my-1 border-t border-hairline" />
+          <button className="w-full rounded-md px-3 py-2 text-left text-[13px] text-danger transition-colors hover:bg-danger-soft">
+            Log out
+          </button>
+        </div>
+      )}
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-3 rounded-full border border-transparent hover:border-hairline hover:bg-obsidian px-3 py-2 transition-all cursor-pointer text-left"
       style={{ borderRadius: "999px" }}
     >
       <span
@@ -177,6 +220,16 @@ function RailProfile() {
           </p>
         )}
       </div>
+      <svg
+        viewBox="0 0 24 24"
+        className={`size-4 text-dim transition-transform ${open ? "rotate-180" : ""}`}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path d="m18 15-6-6-6 6" />
+      </svg>
+      </button>
     </div>
   );
 }
@@ -189,24 +242,26 @@ function RailProfile() {
  * thing on it rather than a scroll.
  */
 function Idle() {
+  const userName = useAgentStore((s) => s.userName);
+  const displayName = userName ? `, ${userName}` : "";
+  const hour = new Date().getHours();
+  let greeting = "Good evening";
+  if (hour < 12) greeting = "Good morning";
+  else if (hour < 17) greeting = "Good afternoon";
+
   return (
-    <div className="mx-auto w-full max-w-[46rem] pt-[8vh]">
-      <div className="text-center">
-        <p className="type-tagline text-[clamp(17px,2vw,24px)] text-dim">
-          Fifteen agents, one command —
-        </p>
-        <h1 className="type-display mt-2 text-[clamp(44px,7.5vw,96px)]">
-          Tell the council
+    <div className="mx-auto w-full max-w-[46rem] pt-[15vh]">
+      <div className="text-center flex flex-col items-center mb-8">
+        <img src="/favicon.png" alt="Logo" className="size-10 mb-4" />
+        <h1 className="type-tagline text-[clamp(28px,4vw,40px)] text-fg tracking-tight">
+          {greeting}{displayName}
         </h1>
-        <p className="type-mono mt-3 text-[12px] text-muted">
-          Type your command. The swarm will orchestrate it.
-        </p>
       </div>
 
-      <div className="mt-9">
+      <div className="w-full">
         <CouncilCockpit
-          placeholder="Tell the council what you need…"
-          showTimeline={true}
+          placeholder="Ask anything or tell the council what you need…"
+          showTimeline={false}
           autoFocus
         />
       </div>
@@ -223,24 +278,31 @@ function Idle() {
  */
 function Run() {
   return (
-    <div className="mx-auto w-full max-w-[86rem]">
-      <div className="mx-auto max-w-[46rem]">
-        <CouncilCockpit
-          placeholder="Tell the council what you need…"
-          showTimeline={false}
-          autoFocus
-        />
+    <div className="flex flex-col h-full w-full">
+      {/* Independent Scrolling Columns */}
+      <div className="flex-1 min-h-0 px-5 pt-6 pb-6 sm:px-8 lg:px-12">
+        <div className="mx-auto w-full h-full max-w-[86rem]">
+          <div className="grid gap-x-10 h-full lg:grid-cols-2">
+            <div className="min-w-0 flex flex-col gap-8 h-full overflow-y-auto pb-8 pr-2">
+              <Result />
+              <DagOrchestrationStage />
+              <ArtifactPanel />
+            </div>
+            <div className="min-w-0 flex flex-col gap-8 h-full overflow-y-auto pb-8 pl-2">
+              <ThoughtStream role="staff" />
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-8 grid gap-x-10 gap-y-8 lg:grid-cols-2">
-        <div className="min-w-0 space-y-8">
-          <Result />
-          <DagOrchestrationStage />
-          <ArtifactPanel />
-        </div>
-        <div className="min-w-0 space-y-8">
-          <ThoughtStream role="staff" />
-          <RecallPanel />
+      {/* Pinned Bottom Command Bar */}
+      <div className="shrink-0 border-t-2 border-fg bg-obsidian p-4 shadow-[0px_-4px_10px_rgba(0,0,0,0.04)]">
+        <div className="max-w-4xl mx-auto">
+          <CouncilCockpit
+            placeholder="Send follow-up or give the council another command…"
+            showTimeline={false}
+            autoFocus
+          />
         </div>
       </div>
     </div>
@@ -252,6 +314,7 @@ export function StaffScreen() {
   const hasRun = useAgentStore((s) => s.sessionId !== null);
   const subtasks = useAgentStore((s) => s.subtasks);
   const running = useAgentStore((s) => s.running);
+  const clearRun = useAgentStore((s) => s.clearRun);
   const [tab, setTab] = useState<Tab>("ops");
   const autoSwitchRef = useRef<string | null>(null);
 
@@ -285,89 +348,108 @@ export function StaffScreen() {
   );
 
   return (
-    <div className="min-h-dvh flex bg-void">
+    <div className="flex h-dvh overflow-hidden bg-void">
       <Sidebar
         items={visible}
         active={tab}
-        onSelect={setTab}
+        onSelect={(key) => {
+          if (key === "ops") clearRun();
+          setTab(key);
+        }}
         middle={<RailSessions onSelectSession={() => setTab("ops")} />}
         footer={<RailProfile />}
       />
 
-      <main className="flex-1 min-w-0 px-5 pb-20 sm:px-8 lg:px-12 pt-6">
+      <main className="min-w-0 flex-1 overflow-hidden flex flex-col">
         {tab === "ops" ? (
           hasRun ? (
             <Run />
           ) : (
-            <Idle />
+            <div className="flex-1 overflow-y-auto px-5 pb-20 pt-6 sm:px-8 lg:px-12">
+              <Idle />
+            </div>
           )
+        ) : tab === "help" ? (
+          <div className="flex-1 overflow-y-auto">
+            <DocsPanel />
+          </div>
         ) : tab === "setup" ? (
           /* Capped, and alone. A live thought stream beside a form full of
              password fields has nothing to say about it. */
-          <div className="max-w-3xl">
-            <ConnectAccounts />
+          <div className="flex-1 overflow-y-auto px-5 pb-20 pt-6 sm:px-8 lg:px-12">
+            <div className="max-w-3xl">
+              <ConnectAccounts />
+            </div>
           </div>
         ) : tab === "policy" ? (
-          <div className="max-w-5xl space-y-10">
-            <ConcaPanel />
-            <div className="max-w-2xl">
-              <CouncilCockpit
-                placeholder="Try something the policy should refuse…"
-                showTimeline={false}
-              />
-            </div>
-            {hasRun && <DagOrchestrationStage />}
+          <div className="flex-1 overflow-y-auto px-5 pb-20 pt-6 sm:px-8 lg:px-12">
+            <div className="max-w-5xl space-y-10">
+              <ConcaPanel />
+              <div className="max-w-2xl">
+                <CouncilCockpit
+                  placeholder="Try something the policy should refuse…"
+                  showTimeline={false}
+                />
+              </div>
+              {hasRun && <DagOrchestrationStage />}
 
-            {/*
-              The agent list lives here rather than under the composer on the
-              Council page, because it is a readout of what the policy granted —
-              every entry in it is an `enabled` line in the file above, and a
-              revoked agent simply is not in it. On the Council page it was a
-              grid of sixteen tiles between the operator and the whitespace the
-              page is for; here it is the answer to the question the page raises.
-            */}
-            <div>
-              <h2 className="type-display mb-1 text-[20px]">
-                What this grants
-              </h2>
-              <p className="mb-5 text-[13px] leading-relaxed text-dim">
-                Every agent below is an enabled line in the file. Revoke one and
-                it disappears from here, from the rail, and from the plan.
-              </p>
-              <AgentDock />
+              {/*
+                The agent list lives here rather than under the composer on the
+                Council page, because it is a readout of what the policy granted —
+                every entry in it is an `enabled` line in the file above, and a
+                revoked agent simply is not in it. On the Council page it was a
+                grid of sixteen tiles between the operator and the whitespace the
+                page is for; here it is the answer to the question the page raises.
+              */}
+              <div>
+                <h2 className="type-display mb-1 text-[20px]">
+                  What this grants
+                </h2>
+                <p className="mb-5 text-[13px] leading-relaxed text-dim">
+                  Every agent below is an enabled line in the file. Revoke one and
+                  it disappears from here, from the rail, and from the plan.
+                </p>
+                <AgentDock />
+              </div>
             </div>
+          </div>
+        ) : tab === "calendar" ? (
+          <div className="flex-1 min-h-0 p-3 sm:p-5 flex flex-col overflow-hidden">
+            <CalendarScreen />
+          </div>
+        ) : tab === "diary" ? (
+          <div className="flex-1 min-h-0 p-3 sm:p-5 flex flex-col overflow-hidden">
+            <WorkDiary />
           </div>
         ) : (
           /* One column at full width. The stream and the plan used to flank
              every domain panel in a 320px rail; on a 1280px viewport that left
              the panel itself in about 900px and put two empty boxes beside it. */
-          <div className="space-y-10">
-            <div className="min-w-0">
-              {tab === "calendar" ? (
-                <CalendarScreen />
-              ) : tab === "email" ? (
-                <EmailHub />
-              ) : tab === "telecom" ? (
-                <TelecomInbox />
-              ) : tab === "browser" ? (
-                <BrowserPanel />
-              ) : tab === "shopper" ? (
-                <ShopperPanel />
-              ) : tab === "market" ? (
-                <MarketPanel />
-              ) : tab === "chain" ? (
-                <ChainPanel />
-              ) : (
-                <WorkDiary />
+          <div className="flex-1 overflow-y-auto px-5 pb-20 pt-6 sm:px-8 lg:px-12">
+            <div className="space-y-10">
+              <div className="min-w-0">
+                {tab === "email" ? (
+                  <EmailHub />
+                ) : tab === "telecom" ? (
+                  <TelecomInbox />
+                ) : tab === "browser" ? (
+                  <BrowserPanel />
+                ) : tab === "shopper" ? (
+                  <ShopperPanel />
+                ) : tab === "market" ? (
+                  <MarketPanel />
+                ) : (
+                  <ChainPanel />
+                )}
+              </div>
+
+              {hasRun && (
+                <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
+                  <DagOrchestrationStage />
+                  <ThoughtStream role="staff" />
+                </div>
               )}
             </div>
-
-            {hasRun && (
-              <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
-                <DagOrchestrationStage />
-                <ThoughtStream role="staff" />
-              </div>
-            )}
           </div>
         )}
       </main>

@@ -79,68 +79,84 @@ export function PublicScreen() {
   // but if this acts as the "workspace" role it will have agents granted by the server.
   const visible = TABS.filter((t) => !t.agent || agents.includes(t.agent));
 
+  
   return (
-    <div className="space-y-4 py-4">
+    <div className="flex flex-col h-[calc(100dvh-4rem)] bg-void overflow-hidden py-4">
       {/* If they have other tabs, show the TabBar */}
       {visible.length > 1 && (
-        <TabBar tabs={visible} active={tab} onSelect={setTab} />
+        <div className="shrink-0 px-4 mb-4">
+          <TabBar tabs={visible} active={tab} onSelect={setTab} />
+        </div>
       )}
 
       {tab === "work" ? (
-        <div className="mx-auto max-w-3xl space-y-4">
+        <div className="flex-1 overflow-hidden flex flex-col w-full max-w-3xl mx-auto h-full">
           {!hasRun ? (
-            <div className="pb-2 text-center">
-              <h1 className="text-[22px] font-semibold tracking-tight text-fg">
-                Workspace
-              </h1>
-              <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-muted">
-                Your AI-assisted workspace for managing tasks, research, and
-                correspondence.
-              </p>
+            <div className="flex-1 overflow-y-auto space-y-4 px-4 pt-[10vh]">
+              <div className="text-center flex flex-col items-center mb-8">
+                <img src="/favicon.png" alt="Logo" className="size-10 mb-4" />
+                <h1 className="type-tagline text-[clamp(28px,4vw,40px)] text-fg tracking-tight">
+                  Good afternoon, {useAgentStore((s) => s.userName) || "User"}
+                </h1>
+              </div>
+
+              <CouncilCockpit
+                placeholder="Ask anything…"
+                showTimeline={false}
+                autoFocus
+              />
+
+              <ul className="flex flex-wrap justify-center gap-1.5 mt-4">
+                {SUGGESTIONS.map((s) => (
+                  <li key={s}>
+                    <button
+                      type="button"
+                      disabled={running}
+                      onClick={() => void runPrompt(s)}
+                      className="chip transition-colors hover:bg-council-soft cursor-pointer"
+                    >
+                      {s}
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
-          ) : null}
-
-          <CouncilCockpit
-            placeholder="Ask anything…"
-            showTimeline={false}
-            autoFocus
-          />
-
-          {!hasRun ? (
-            <ul className="flex flex-wrap justify-center gap-1.5">
-              {SUGGESTIONS.map((s) => (
-                <li key={s}>
-                  <button
-                    type="button"
-                    disabled={running}
-                    onClick={() => void runPrompt(s)}
-                    className="chip transition-colors hover:bg-council-soft"
-                  >
-                    {s}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          <ThoughtStream role="public" />
-          <Answer />
-          <ArtifactPanel compact />
+          ) : (
+            <div className="flex-1 overflow-hidden flex flex-col h-full w-full">
+              {/* Scrollable Real-Time Content Feed */}
+              <div className="flex-1 overflow-y-auto px-4 pt-6 pb-6 space-y-6">
+                <ThoughtStream role="public" />
+                <Answer />
+                <ArtifactPanel compact />
+              </div>
+              
+              {/* Pinned Bottom Command Bar */}
+              <div className="shrink-0 border-t-2 border-fg bg-obsidian p-4 shadow-[0px_-4px_10px_rgba(0,0,0,0.04)]">
+                <div className="max-w-4xl mx-auto">
+                  <CouncilCockpit
+                    placeholder="Send follow-up..."
+                    showTimeline={false}
+                    autoFocus
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : tab === "calendar" ? (
-        <div className="mx-auto max-w-5xl">
+        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
           <CalendarScreen />
         </div>
       ) : tab === "email" ? (
-        <div className="mx-auto max-w-5xl">
+        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
           <EmailHub />
         </div>
       ) : tab === "telecom" ? (
-        <div className="mx-auto max-w-5xl">
+        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
           <TelecomInbox />
         </div>
       ) : (
-        <div className="mx-auto max-w-5xl">
+        <div className="flex-1 overflow-y-auto px-4 mx-auto w-full max-w-5xl">
           <WorkDiary />
         </div>
       )}

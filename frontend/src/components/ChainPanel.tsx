@@ -107,38 +107,15 @@ export function ChainPanel() {
             SOLANA NETWORK · READ-ONLY
           </p>
         </div>
-        <button
-          onClick={read}
-          disabled={!address.trim() || busy !== null}
-          className="btn bg-obsidian border border-hairline shadow-none hover:bg-elevated transition-colors disabled:opacity-50"
-          style={{ borderRadius: "var(--radius)" }}
-        >
-          <span className="type-mono text-[12px] flex items-center gap-2">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
-          </span>
-        </button>
       </div>
 
       {/* Metrics Pills */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div
-          className="panel panel-quiet bg-agent-chain p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-agent-chain p-4 border border-fg shadow-[2px_2px_0px_#000]"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-fg/70 mb-2">
+          <p className="type-mono text-[11px] text-fg/70 mb-2 font-bold">
             TOTAL VALUE (USD)
           </p>
           <p className="type-display text-[32px] text-fg truncate">
@@ -148,10 +125,10 @@ export function ChainPanel() {
           </p>
         </div>
         <div
-          className="panel panel-quiet bg-obsidian border-hairline p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
+          className="panel panel-quiet bg-obsidian border border-fg shadow-[2px_2px_0px_#000] p-4"
+          style={{ borderRadius: "0px" }}
         >
-          <p className="type-mono text-[11px] text-muted mb-2">TOKENS HELD</p>
+          <p className="type-mono text-[11px] text-muted mb-2 font-bold">TOKENS HELD</p>
           <p className="type-display text-[32px] text-fg">
             {balances ? (balances.tokens?.length ?? 0) : "—"}
           </p>

@@ -141,9 +141,10 @@ export function Onboarding() {
   );
   const [i, setI] = useState(0);
   const role = useAgentStore((s) => s.role);
+  const userName = useAgentStore((s) => s.userName);
+  const setUserName = useAgentStore((s) => s.setUserName);
   const canSetup = useAgentStore((s) => s.canSetup);
 
-  const [initialCanSetup] = useState(canSetup);
   const [savingRole, setSavingRole] = useState(false);
   const bootstrap = useAgentStore((s) => s.bootstrap);
 
@@ -152,9 +153,14 @@ export function Onboarding() {
   const finish = () => {
     localStorage.setItem(SEEN_KEY, "1");
     setDismissed(true);
+    void api.saveProfile({
+      name: userName || "Heccker",
+      role: role || "staff",
+      onboarded: true,
+    });
   };
 
-  const showRoleStep = initialCanSetup;
+  const showRoleStep = canSetup;
   const steps = SLIDES.length + (canSetup ? 1 : 0) + (showRoleStep ? 1 : 0);
 
   const onRoleStep = showRoleStep && i === 0;
@@ -166,6 +172,11 @@ export function Onboarding() {
     try {
       setSavingRole(true);
       await api.login(newRole);
+      await api.saveProfile({
+        name: userName || "Heccker",
+        role: newRole,
+        onboarded: true,
+      });
       await bootstrap();
       setI(i + 1);
     } catch (err) {
@@ -242,6 +253,20 @@ export function Onboarding() {
                   different users.
                 </p>
 
+                <div className="mb-5">
+                  <label className="block text-sm font-bold text-fg mb-1" htmlFor="operator-name">
+                    Operator Name
+                  </label>
+                  <input
+                    id="operator-name"
+                    type="text"
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    placeholder="What should we call you?"
+                    className="w-full rounded bg-void px-3 py-2 text-sm border-2 border-hairline outline-none focus:border-fg transition-colors"
+                  />
+                </div>
+
                 <div className="flex flex-col gap-3">
                   <button
                     type="button"
@@ -310,13 +335,10 @@ export function Onboarding() {
                 <h2 className="type-display mb-2 mt-1 text-[clamp(24px,4vw,32px)]">
                   Connect your accounts
                 </h2>
-                <p className="mb-5 text-[13px] leading-relaxed text-dim">
-                  You are <strong className="text-fg">{role}</strong> here,
-                  which is everything. The agents just need somewhere to reach —
-                  a model provider at minimum. All of it can wait; Settings has
-                  this page.
+                <p className="mb-8 text-[13px] leading-relaxed text-dim max-w-lg">
+                  Agents need credentials to reach out to the real world. You can set them up now or skip and do it later in Settings.
                 </p>
-                <ConnectAccounts />
+                <ConnectAccounts hideHeader />
               </div>
             </div>
 
@@ -333,7 +355,7 @@ export function Onboarding() {
               </button>
             </div>
           </>
-        ) : (
+        ) : slide ? (
           <>
             <div
               key={i}
@@ -378,7 +400,7 @@ export function Onboarding() {
               </button>
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );

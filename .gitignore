@@ -30,3 +30,4 @@ mobile/ios/
 Thumbs.db
 .idea/
 .vscode/
+.webview_data/

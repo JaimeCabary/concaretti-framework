@@ -15,10 +15,9 @@
  * point where a human can still read what is about to happen.
  */
 
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { useAgentStore } from "../store/agentStore";
 import { MicButton } from "./MicButton";
-import { Empty, relTime } from "./ui";
 
 const MAX_INLINE_BYTES = 200_000;
 const TEXTUAL =
@@ -26,25 +25,31 @@ const TEXTUAL =
 
 export function CouncilCockpit({
   placeholder = "What needs doing?",
-  showTimeline = true,
   autoFocus = false,
+  prefill = "",
 }: {
   placeholder?: string;
   showTimeline?: boolean;
   autoFocus?: boolean;
+  prefill?: string;
 }) {
   const runPrompt = useAgentStore((s) => s.runPrompt);
   const running = useAgentStore((s) => s.running);
-  const sessions = useAgentStore((s) => s.sessions);
-  const attach = useAgentStore((s) => s.attachSession);
   const rule0 = useAgentStore((s) => s.rule0Excluded);
   const lastError = useAgentStore((s) => s.lastError);
   const dismissError = useAgentStore((s) => s.dismissError);
 
-  const [text, setText] = useState("");
+  const [text, setText] = useState(prefill);
   const [dropping, setDropping] = useState(false);
   const [dropNote, setDropNote] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (prefill) {
+      setText(prefill);
+      box.current?.focus();
+    }
+  }, [prefill]);
 
   const send = () => {
     const value = text.trim();
@@ -91,26 +96,33 @@ export function CouncilCockpit({
         }}
         onDragLeave={() => setDropping(false)}
         onDrop={(e) => void onDrop(e)}
-        className={`panel bg-obsidian border-hairline p-5 transition-colors ${dropping ? "bg-council-soft" : ""}`}
-        style={{ borderRadius: "32px" }}
+        className={`panel bg-obsidian border-hairline p-2.5 transition-colors flex items-end gap-2 ${dropping ? "bg-council-soft" : ""}`}
       >
-        <div className="flex items-center gap-3 mb-2">
-          <svg
-            viewBox="0 0 24 24"
-            className="size-4 text-dim"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path d="M12 3.5l1.7 4.8 4.8 1.7-4.8 1.7L12 16.5l-1.7-4.8L5.5 10l4.8-1.7z" />
+        {/* Attachment Button */}
+        <label className="shrink-0 cursor-pointer p-2 text-dim hover:text-fg transition-colors rounded-full hover:bg-elevated ml-1 mb-0.5">
+          <input
+            type="file"
+            className="hidden"
+            multiple
+            onChange={(e) => {
+              // Basic hookup for file selection (currently handles text injection as before)
+              const files = Array.from(e.target.files || []);
+              if (files.length > 0) {
+                 const ev = { preventDefault: () => {}, dataTransfer: { files } } as unknown as DragEvent<HTMLDivElement>;
+                 void onDrop(ev);
+              }
+              e.target.value = ''; // Reset
+            }}
+          />
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          <span className="type-mono text-[11px] text-muted tracking-widest">
-            COUNCIL COMMAND
-          </span>
-        </div>
-        <textarea
-          ref={box}
-          rows={3}
+        </label>
+
+        <div className="flex-1 flex flex-col min-w-0">
+          <textarea
+            ref={box}
+            rows={1}
           value={text}
           autoFocus={autoFocus}
           disabled={running}
@@ -121,41 +133,37 @@ export function CouncilCockpit({
               send();
             }
           }}
-          placeholder={
-            dropping ? "Drop a text file to inline it…" : placeholder
-          }
-          className="w-full resize-none bg-transparent text-[16px] leading-relaxed
-            text-fg placeholder:text-muted focus:outline-none px-2"
-          aria-label="Prompt"
-        />
-
-        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-hairline pt-3">
-          <p className="min-w-0 flex-1 text-[11px] text-muted">
-            {dropNote ??
-              (running
-                ? "Running…"
-                : "Enter to send · Shift+Enter for a new line")}
-          </p>
-          {/*
-            Appends rather than replaces, and focuses afterwards. Two thoughts
-            spoken thirty seconds apart are one prompt as often as they are two,
-            and overwriting the first would be unrecoverable — whereas an
-            unwanted paragraph is one undo away.
-          */}
-          <MicButton
-            onText={(said) => {
-              setText((t) => (t ? `${t.replace(/\s+$/, "")} ${said}` : said));
-              box.current?.focus();
-            }}
+            placeholder={
+              dropping ? "Drop a text file to inline it…" : placeholder
+            }
+            className="w-full resize-none bg-transparent text-[15px] leading-relaxed
+              text-fg placeholder:text-muted focus:outline-none py-2 px-1 max-h-48 overflow-y-auto"
+            style={{ minHeight: "40px" }}
+            aria-label="Prompt"
           />
-          <button
-            type="button"
-            onClick={send}
-            disabled={running || !text.trim()}
-            className="btn bg-[#FF3366] hover:bg-[#E62E5C] text-white border-none shadow-none shrink-0 px-8 py-2.5 rounded-none font-bold tracking-widest uppercase transition-colors"
-          >
-            {running ? "WORKING" : "SEND"}
-          </button>
+
+          <div className="flex items-center justify-between gap-3 pt-1 pb-1 pr-1">
+            <p className="min-w-0 flex-1 text-[11px] text-muted px-2">
+              {dropNote ?? (running ? "Running…" : "Enter to send · Shift+Enter for a new line")}
+            </p>
+            
+            <div className="flex items-center gap-2">
+              <MicButton
+                onText={(said) => {
+                  setText((t) => (t ? `${t.replace(/\s+$/, "")} ${said}` : said));
+                  box.current?.focus();
+                }}
+              />
+              <button
+                type="button"
+                onClick={send}
+                disabled={running || !text.trim()}
+                className="btn bg-fg hover:bg-black text-void border-none shadow-none shrink-0 px-4 py-1.5 rounded-full font-bold tracking-widest uppercase transition-colors"
+              >
+                Send
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -181,48 +189,7 @@ export function CouncilCockpit({
         </div>
       ) : null}
 
-      {showTimeline ? (
-        <div className="panel bg-void border-none shadow-none mt-8">
-          <header className="mb-4">
-            <h2 className="type-mono text-[11px] text-muted tracking-widest flex items-center gap-2">
-              <svg
-                viewBox="0 0 24 24"
-                className="size-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              RECENT SESSIONS
-            </h2>
-          </header>
-          {sessions.length === 0 ? (
-            <Empty>No sessions yet.</Empty>
-          ) : (
-            <ul className="max-h-52 divide-y divide-hairline overflow-y-auto">
-              {sessions.slice(0, 12).map((s) => (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onClick={() => attach(s.id)}
-                    className="w-full px-4 py-3 text-left transition-colors hover:bg-elevated rounded-xl"
-                  >
-                    <p className="truncate text-[14px] font-semibold text-fg">
-                      {s.title || s.summary || "Untitled session"}
-                    </p>
-                    <p className="type-mono mt-1.5 text-[10px] text-dim tracking-wide">
-                      {s.role?.toUpperCase() ?? "PUBLIC"} ·{" "}
-                      {relTime(s.created_at).toUpperCase()}
-                    </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ) : null}
+
     </div>
   );
 }

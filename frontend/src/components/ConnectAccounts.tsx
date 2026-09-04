@@ -1,34 +1,8 @@
 /**
- * Connect accounts — the credential surface.
+ * Connect accounts & Settings — Operator Profile and Credential surface.
  *
- * This is the page that replaced the council PIN. The PIN asked you to prove you
- * were allowed to be here; this asks you for the things that actually make the
- * app able to do anything. One of those is theatre on a machine you already own
- * and the other is the whole product, and the swap is the point.
- *
- * Three properties it holds, all of them enforced server-side and merely
- * *respected* here:
- *
- * **Values are write-only.** A set key arrives as `set: true` plus a masked tail,
- * never as the value. So this component can show that Twilio is connected and
- * cannot show you the token — a settings page that can display your credentials
- * has re-created the problem the `.env` file exists to avoid, and the browser is
- * the last place that should be holding them.
- *
- * **An empty field disconnects.** Sending `''` for a key that is currently set
- * removes it, which is the difference between a settings page and a one-way
- * funnel. That is why "Disconnect" is a real button and not a note telling you to
- * go and edit a file.
- *
- * **The confirmation is the ladder count, not a checkmark.** After a save the
- * model total is re-read from the rotator. `7 of 56 slots live` moving to
- * `12 of 56` is evidence the key was accepted by the process; a green tick would
- * only be evidence the form submitted. No live probe is fired to prove it, because
- * that would spend a request against the quota the key was pasted in to preserve.
- *
- * Only the changed fields are sent. The whole catalogue is 29 keys and posting all
- * of them would rewrite lines nobody touched, which would turn `.env`'s modified
- * time into noise and the audit entry into a list of everything.
+ * For all roles: Operator Name, Active Role switcher, and Integration Status.
+ * For Staff: Full write access to .env credentials, model ladder, and keys.
  */
 
 import { useEffect, useState } from "react";
@@ -53,30 +27,24 @@ const STATE_LABEL: Record<IntegrationState, string> = {
   off: "not connected",
 };
 
-/**
- * One credential row.
- *
- * `value === undefined` means untouched, `''` means the operator explicitly
- * cleared it. The two are different submissions — untouched is omitted from the
- * payload entirely, cleared is a disconnect — so the draft cannot just be a
- * `Record<string, string>` initialised from the status.
- */
 function FieldRow({
   field,
   value,
+  readOnly = false,
   onChange,
 }: {
   field: IntegrationField;
   value: string | undefined;
+  readOnly?: boolean;
   onChange: (next: string | undefined) => void;
 }) {
   const clearing = field.set && value === "";
   const id = `env-${field.key}`;
 
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className="type-mono text-[10px] text-muted">
+    <div className="space-y-1">
+      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+        <label htmlFor={id} className="type-mono text-[10px] text-muted whitespace-nowrap">
           {field.label}
           {field.required ? (
             <span
@@ -90,9 +58,9 @@ function FieldRow({
         </label>
 
         {field.set ? (
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5 min-w-0 sm:justify-end">
             <span
-              className="font-mono text-[10px] text-dim"
+              className="font-mono text-[10px] text-dim truncate"
               title={
                 field.secret
                   ? "Stored on this machine. The server never sends the value back."
@@ -101,13 +69,15 @@ function FieldRow({
             >
               {field.hint}
             </span>
-            <button
-              type="button"
-              className="chip"
-              onClick={() => onChange(clearing ? undefined : "")}
-            >
-              {clearing ? "Keep" : "Disconnect"}
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                className="chip"
+                onClick={() => onChange(clearing ? undefined : "")}
+              >
+                {clearing ? "Keep" : "Disconnect"}
+              </button>
+            )}
           </span>
         ) : null}
       </div>
@@ -117,8 +87,9 @@ function FieldRow({
         type={field.secret ? "password" : "text"}
         autoComplete="off"
         spellCheck={false}
-        className="field mt-0.5 w-full font-mono text-[12px]"
-        placeholder={field.set ? "Stored — type to replace" : field.placeholder}
+        disabled={readOnly}
+        className={`w-full rounded-xl text-sm bg-void border border-hairline focus:border-fg p-3 outline-none ${readOnly ? "opacity-60 cursor-not-allowed bg-elevated" : ""}`}
+        placeholder={field.set ? "Stored on machine" : field.placeholder}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
       />
@@ -130,25 +101,20 @@ function FieldRow({
       ) : field.help ? (
         <p className="mt-1 text-[10px] leading-snug text-muted">{field.help}</p>
       ) : null}
-
-      {field.restart && value ? (
-        <p className="mt-1 text-[10px] leading-snug text-dim">
-          Read once at startup — this one needs the server restarted.
-        </p>
-      ) : null}
     </div>
   );
 }
 
-/**
- * The group list plus the save bar, with no panel chrome of its own.
- *
- * Chromeless because it has two hosts that frame it differently: the Setup tab
- * wraps it in a `Panel`, and onboarding drops it into a modal that already has a
- * heading and its own progress pills. Rendering a panel inside either would be a
- * box in a box.
- */
-export function ConnectAccounts({ onSaved }: { onSaved?: () => void }) {
+export function ConnectAccounts({ onSaved, hideHeader }: { onSaved?: () => void; hideHeader?: boolean }) {
+  const role = useAgentStore((s) => s.role);
+  const userName = useAgentStore((s) => s.userName);
+  const setUserName = useAgentStore((s) => s.setUserName);
+  const bootstrap = useAgentStore((s) => s.bootstrap);
+
+  const [nameInput, setNameInput] = useState(userName);
+  const [nameSaved, setNameSaved] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState(false);
+
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -158,6 +124,12 @@ export function ConnectAccounts({ onSaved }: { onSaved?: () => void }) {
   const [saved, setSaved] = useState<string | null>(null);
   const [restart, setRestart] = useState<string[]>([]);
 
+  const isStaff = role === "staff";
+
+  useEffect(() => {
+    setNameInput(userName);
+  }, [userName]);
+
   useEffect(() => {
     let alive = true;
     void api
@@ -165,43 +137,39 @@ export function ConnectAccounts({ onSaved }: { onSaved?: () => void }) {
       .then((s) => {
         if (!alive) return;
         setStatus(s);
-        // Open the first thing that needs attention rather than the first group.
-        // With everything connected nothing expands, which is the correct resting
-        // state for a page you visit once.
+        setLoadError(null);
         setOpen(s.groups.find((g) => g.state !== "on")?.id ?? null);
       })
       .catch((e) => {
         if (!alive) return;
         setLoadError(
-          e instanceof Error ? e.message : "Could not read the settings",
+          e instanceof Error ? e.message : "Could not read settings",
         );
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [role]);
 
-  if (loadError) {
-    return (
-      <p className="inset-flat bg-danger-soft px-3 py-2.5 text-[12px] leading-snug text-fg">
-        {loadError}
-      </p>
-    );
-  }
+  const handleSaveName = () => {
+    setUserName(nameInput.trim());
+    setNameSaved(true);
+    setTimeout(() => setNameSaved(false), 2000);
+  };
 
-  if (!status) {
-    return (
-      <div className="px-1 py-3">
-        <Spinner label="Reading settings" />
-      </div>
-    );
-  }
+  const handleSwitchRole = async (nextRole: "public" | "student" | "staff") => {
+    if (nextRole === role || switchingRole) return;
+    setSwitchingRole(true);
+    try {
+      await api.login(nextRole);
+      await bootstrap();
+    } finally {
+      setSwitchingRole(false);
+    }
+  };
 
-  const fields = status.groups.flatMap((g) => g.fields);
+  const fields = status ? status.groups.flatMap((g) => g.fields) : [];
 
-  // Only send what changed, and only send an empty string for a key that is
-  // actually set — clearing a field that was already blank would otherwise write
-  // `KEY=` into `.env` for no reason.
   const payload: Record<string, string> = {};
   for (const [key, raw] of Object.entries(draft)) {
     const value = raw.trim();
@@ -209,8 +177,8 @@ export function ConnectAccounts({ onSaved }: { onSaved?: () => void }) {
   }
   const pending = Object.keys(payload).length;
 
-  const save = async () => {
-    if (!pending) return;
+  const saveIntegrations = async () => {
+    if (!pending || !isStaff) return;
     setSaving(true);
     setSaveError(null);
     setSaved(null);
@@ -224,15 +192,10 @@ export function ConnectAccounts({ onSaved }: { onSaved?: () => void }) {
           ? `Saved ${res.changed.join(", ")}.`
           : "Nothing needed changing.",
       );
-      // A model key changes the ladder and a Google key changes what the panels
-      // report, so the ambient state is re-read rather than left stale until the
-      // next reload.
       void useAgentStore.getState().refreshRotator();
       void useAgentStore.getState().refreshConca();
       onSaved?.();
     } catch (e) {
-      // Shown verbatim: a 400 here is the server naming the key it refused and
-      // why, which is more useful than "save failed".
       setSaveError(e instanceof Error ? e.message : "Save refused");
     } finally {
       setSaving(false);
@@ -240,200 +203,257 @@ export function ConnectAccounts({ onSaved }: { onSaved?: () => void }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-4xl">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="type-tagline text-[16px] text-dim mb-1">
-            System managed
-          </p>
-          <h1 className="type-display text-[40px] leading-[0.9]">
-            CONNECTED ACCOUNTS
-          </h1>
-          <p className="type-mono mt-3 text-[10px] tracking-widest text-muted">
-            CREDENTIALS AND INTEGRATIONS
-          </p>
-        </div>
-        <button
-          onClick={() => void window.location.reload()}
-          className="btn bg-obsidian border border-hairline shadow-none hover:bg-elevated transition-colors"
-          style={{ borderRadius: "var(--radius)" }}
-        >
-          <span className="type-mono text-[12px] flex items-center gap-2">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Reload
-          </span>
-        </button>
-      </div>
-
-      {/* Metrics Pills */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div
-          className="panel panel-quiet bg-agent-orchestrator p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
-        >
-          <p className="type-mono text-[11px] text-fg/70 mb-2">
-            MODEL SLOTS LIVE
-          </p>
-          <p className="type-display text-[32px] text-fg">
-            {status.models_active}{" "}
-            <span className="text-[20px] text-fg/70">
-              / {status.models_total}
+      {!hideHeader && (
+        <div className="flex items-start justify-between border-b border-hairline pb-4">
+          <div>
+            <span className="type-mono text-[10px] text-muted tracking-widest uppercase">
+              System Preferences
             </span>
-          </p>
-        </div>
-        <div
-          className="panel panel-quiet bg-obsidian border-hairline p-4"
-          style={{ borderRadius: "var(--radius-md)" }}
-        >
-          <p className="type-mono text-[11px] text-muted mb-2">
-            PENDING CHANGES
-          </p>
-          <p className="type-display text-[32px] text-fg">{pending}</p>
-        </div>
-      </div>
+            <h1 className="type-display text-[28px] text-fg leading-none mt-1">
+              SETTINGS & IDENTITY
+            </h1>
+            <p className="type-mono mt-1 text-[11px] text-dim">
+              Operator credentials, role permissions, and service integrations
+            </p>
+          </div>
 
-      <p className="type-mono text-[11px] leading-relaxed text-dim">
-        Keys are written to a file on this machine and used from there. They are
-        never sent to a model, never stored in the database, and never read back
-        into this page — a connected account shows as connected and nothing
-        more.
-      </p>
-
-      {!status.writable ? (
-        <p className="inset-flat bg-warn-soft px-3 py-2 text-[11px] leading-snug text-fg">
-          <span className="font-mono">{status.path}</span> cannot be written.
-          Fix the permissions on it, or edit the file by hand.
-        </p>
-      ) : null}
-
-      <ul className="space-y-1.5">
-        {status.groups.map((group) => {
-          const expanded = open === group.id;
-          const touched = group.fields.filter((f) => f.key in draft).length;
-
-          return (
-            <li
-              key={group.id}
-              className="panel bg-obsidian border-hairline p-0 overflow-hidden"
-              style={{ borderRadius: "var(--radius-md)" }}
+          <div className="flex items-center gap-2">
+            <span
+              className="type-mono text-[10px] font-bold px-2.5 py-1 border border-hairline uppercase rounded-xl shadow-sm"
+              style={{
+                background:
+                  role === "staff"
+                    ? "var(--color-agent-orchestrator)"
+                    : role === "student"
+                      ? "var(--color-council-soft)"
+                      : "var(--color-elevated)",
+              }}
             >
+              ROLE: {role}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── 1. Operator Profile (All Roles) ── */}
+      <div className="bg-obsidian border border-hairline rounded-2xl p-6 shadow-sm">
+        <h2 className="type-mono text-[12px] font-bold text-fg uppercase tracking-wider mb-3 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          OPERATOR PROFILE
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label
+              htmlFor="operator-name-input"
+              className="type-mono block text-[10px] text-muted font-bold uppercase mb-1"
+            >
+              Operator Name
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="operator-name-input"
+                type="text"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                placeholder="What should agents call you?"
+                className="flex-1 rounded-xl text-sm bg-void border border-hairline focus:border-fg p-3 outline-none"
+              />
               <button
                 type="button"
-                aria-expanded={expanded}
-                onClick={() => setOpen(expanded ? null : group.id)}
-                className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-elevated transition-colors"
+                onClick={handleSaveName}
+                className="bg-fg text-void hover:opacity-90 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-opacity"
               >
-                <span className="min-w-0">
-                  <span className="block text-[14px] font-semibold text-fg mb-0.5">
-                    {group.title}
-                  </span>
-                  {/* Wraps rather than truncating. `truncate` clipped this to
-                      "…both behind the appr…", which turns the one line that says
-                      what connecting the account buys you into a riddle. Two
-                      lines of 11px costs less than that. */}
-                  <span className="block text-[11px] leading-snug text-dim">
-                    {group.unlocks}
-                  </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-1.5">
-                  {touched ? <Chip tone="info">{touched} edited</Chip> : null}
-                  <Chip tone={TONE[group.state]}>
-                    {STATE_LABEL[group.state]}
-                  </Chip>
-                  <span
-                    aria-hidden
-                    className="type-mono text-[11px] text-muted"
-                  >
-                    {expanded ? "−" : "+"}
-                  </span>
-                </span>
+                {nameSaved ? "Saved ✓" : "Save"}
               </button>
+            </div>
+            <p className="text-[10px] text-muted mt-1">
+              Used across agent dialogues and personal diary reflections.
+            </p>
+          </div>
 
-              {expanded ? (
-                <div className="animate-slide-in space-y-4 border-t border-hairline p-4 bg-void">
-                  <p className="type-mono text-[11px] leading-relaxed text-dim mb-4">
-                    {group.blurb}
-                  </p>
-                  {group.fields.map((f) => (
-                    <FieldRow
-                      key={f.key}
-                      field={f}
-                      value={draft[f.key]}
-                      onChange={(next) =>
-                        setDraft((d) => {
-                          if (next !== undefined)
-                            return { ...d, [f.key]: next };
-                          const rest = { ...d };
-                          delete rest[f.key];
-                          return rest;
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-
-      <div
-        className="panel bg-obsidian border-hairline p-4 flex flex-wrap items-center gap-3"
-        style={{ borderRadius: "var(--radius-md)" }}
-      >
-        <button
-          type="button"
-          className="btn bg-agent-orchestrator text-fg shadow-none border-none hover:bg-agent-orchestrator/90 px-6 py-2 text-[13px] type-mono font-semibold"
-          disabled={saving || !pending || !status.writable}
-          onClick={() => void save()}
-        >
-          {saving
-            ? "SAVING…"
-            : pending
-              ? `SAVE ${pending} CHANGE${pending === 1 ? "" : "S"}`
-              : "SAVE"}
-        </button>
-        {pending ? (
-          <button
-            type="button"
-            className="btn bg-transparent border-hairline text-fg px-4 py-2 text-[13px] type-mono"
-            onClick={() => setDraft({})}
-          >
-            DISCARD
-          </button>
-        ) : null}
+          <div>
+            <span className="type-mono block text-[10px] text-muted font-bold uppercase mb-1">
+              Active Role Switcher
+            </span>
+            <div className="flex gap-1.5 pt-0.5">
+              {(["public", "student", "staff"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  disabled={switchingRole}
+                  onClick={() => void handleSwitchRole(r)}
+                  className={`flex-1 py-2 rounded-xl text-[10px] font-bold uppercase border transition-all ${
+                    role === r
+                      ? "bg-fg text-void border-fg shadow-sm"
+                      : "bg-void text-dim border-hairline hover:border-fg"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted mt-1">
+              Switch surfaces to inspect policy differences.
+            </p>
+          </div>
+        </div>
       </div>
 
-      {saveError ? (
-        <p className="text-[11px] leading-snug text-danger">{saveError}</p>
-      ) : null}
-      {saved ? (
-        <p className="text-[11px] leading-snug text-ok">{saved}</p>
-      ) : null}
-      {restart.length ? (
-        <p className="inset-flat bg-warn-soft px-3 py-2 text-[11px] leading-snug text-fg">
-          Restart the server for{" "}
-          <span className="font-mono">{restart.join(", ")}</span> to take
-          effect. Everything else is already live.
-        </p>
-      ) : null}
+      {/* ── 2. Integrations & Credentials ── */}
+      <div className="bg-obsidian border border-hairline rounded-2xl p-6 shadow-sm space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline pb-3">
+          <div>
+            <h2 className="type-mono text-[12px] font-bold text-fg uppercase tracking-wider flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+              CONNECTED SERVICES & API KEYS
+            </h2>
+            <p className="text-[11px] text-dim mt-0.5">
+              {isStaff
+                ? "Manage model providers, search engines, and communication tokens."
+                : "Live integration status across council agents."}
+            </p>
+          </div>
 
-      <p className="font-mono text-[10px] break-all text-muted">
-        {status.path}
-      </p>
+          {status && (
+            <div className="flex items-center gap-2">
+              <span className="type-mono text-[10px] bg-void border border-hairline px-2.5 py-1 text-fg">
+                MODELS: {status.models_active} / {status.models_total} ACTIVE
+              </span>
+            </div>
+          )}
+        </div>
+
+        {!isStaff && (
+          <div className="p-3 bg-council-soft/30 rounded-xl border border-hairline text-xs text-fg flex items-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fg"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span>
+              <strong>Student Role Notice:</strong> Secret API keys and environment variables are write-restricted to the <strong>Staff</strong> role. You can view connectivity status below.
+            </span>
+          </div>
+        )}
+
+        {loadError && (
+          <div className="p-3 bg-danger-soft border border-hairline text-xs text-fg">
+            <span>{loadError}</span>
+          </div>
+        )}
+
+        {saveError && (
+          <div className="p-3 bg-danger-soft border border-hairline text-xs text-fg">
+            <span>{saveError}</span>
+          </div>
+        )}
+
+        {saved && (
+          <div className="p-3 bg-ok-soft border border-hairline text-xs text-ok font-bold">
+            <span>{saved}</span>
+          </div>
+        )}
+
+        {restart.length > 0 && (
+          <div className="p-3 bg-warn-soft border border-hairline text-xs text-warn font-bold">
+            Restart server to apply: {restart.join(", ")}
+          </div>
+        )}
+
+        {/* Integration Groups */}
+        {!status ? (
+          <div className="py-6 text-center">
+            <Spinner label="Loading service integrations…" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {status.groups.map((group) => {
+              const isOpen = open === group.id;
+
+              return (
+                <div
+                  key={group.id}
+                  className="border border-hairline rounded-xl bg-void overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpen(isOpen ? null : group.id)}
+                    className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-elevated transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`size-2.5 rounded-full ${
+                          group.state === "on"
+                            ? "bg-[#22c55e]"
+                            : group.state === "partial"
+                              ? "bg-[#eab308]"
+                              : "bg-[#9ca3af]"
+                        }`}
+                      />
+                      <span className="type-mono text-xs font-bold text-fg">
+                        {group.title}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Chip tone={TONE[group.state]}>
+                        {STATE_LABEL[group.state]}
+                      </Chip>
+                      <span className="text-muted">
+                        {isOpen ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        )}
+                      </span>
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="px-4 pb-4 pt-2 border-t border-hairline bg-obsidian space-y-3">
+                      <p className="text-[11px] text-dim">{group.blurb}</p>
+                      <div className="flex flex-col gap-4 pt-1">
+                        {group.fields.map((field) => (
+                          <FieldRow
+                            key={field.key}
+                            field={field}
+                            value={draft[field.key]}
+                            readOnly={!isStaff}
+                            onChange={(next) =>
+                              setDraft((d) => {
+                                const copy = { ...d };
+                                if (next === undefined) delete copy[field.key];
+                                else copy[field.key] = next;
+                                return copy;
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Save Bar for Staff */}
+        {isStaff && pending > 0 && (
+          <div className="flex items-center justify-between pt-3 border-t border-hairline">
+            <span className="type-mono text-xs text-muted">
+              {pending} pending credential change(s)
+            </span>
+            <button
+              type="button"
+              onClick={saveIntegrations}
+              disabled={saving}
+              className="bg-[#FF3366] text-white hover:bg-[#E62E5C] rounded-xl px-6 py-2 text-xs font-bold uppercase tracking-wider transition-colors shadow-sm"
+            >
+              {saving ? "Saving…" : "Save Credentials"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
