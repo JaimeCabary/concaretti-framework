@@ -1,0 +1,41 @@
+[project]
+name = "concaretti-backend"
+version = "0.1.0"
+description = "Concaretti-Light backend — FastAPI orchestrator behind a .conca zero-trust boundary"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlite-vec>=0.1.9",
+    "pyyaml>=6.0",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "twilio>=9.0",
+    "google-api-python-client>=2.130",
+    "google-auth-oauthlib>=1.2",
+    "python-multipart>=0.0.9",
+    # Real process metrics for /api/metrics/system. ~40KB wheel, no build step.
+    "psutil>=6.0",
+    # The browser agent. This is the ~40KB Python client only — the ~300MB
+    # Chromium download that `playwright install` performs is deliberately NOT a
+    # prerequisite: `tools._browser_page` attaches to a CDP endpoint or drives an
+    # already-installed Chrome/Edge first, and only falls back to the bundled
+    # PyView / PyWebView native desktop window wrapper
+    "pywebview>=5.0",
+    "playwright>=1.47",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+# Application, not a distributable library — no build backend needed.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

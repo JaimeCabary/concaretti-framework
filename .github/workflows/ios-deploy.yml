@@ -1,0 +1,60 @@
+name: Deploy iOS to TestFlight
+
+on:
+  push:
+    branches:
+      - main # Auto-triggers when you push to main
+  workflow_dispatch: # Allows you to manually trigger it from the Actions tab
+
+jobs:
+  build-and-deploy-ios:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: pnpm install
+        
+      - name: Build React Frontend
+        working-directory: ./frontend
+        run: pnpm run build
+        
+      - name: Setup Capacitor Mobile Shell
+        working-directory: ./mobile
+        run: |
+          pnpm install
+          pnpm install @capacitor/ios
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Build and Sign iOS App
+        uses: yukiarrr/ios-build-action@v1.11.2
+        with:
+          project-path: mobile/ios/App/App.xcodeproj
+          workspace-path: mobile/ios/App/App.xcworkspace
+          p12-base64: ${{ secrets.IOS_P12_BASE64 }}
+          mobileprovision-base64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
+          code-signing-identity: "Apple Distribution"
+          team-id: ${{ secrets.APPLE_TEAM_ID }}
+          export-method: "app-store"
+          
+      - name: Upload to App Store Connect (TestFlight)
+        uses: apple-actions/upload-testflight-build@v1
+        with:
+          app-path: output.ipa
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}

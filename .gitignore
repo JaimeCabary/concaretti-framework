@@ -1,0 +1,32 @@
+# Secrets — never commit
+.env
+backend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Local database and generated artifacts
+backend/concaretti.db
+backend/concaretti.db-wal
+backend/concaretti.db-shm
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Desktop / mobile build output
+desktop/target/
+desktop/src-tauri/target/
+mobile/android/
+mobile/ios/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

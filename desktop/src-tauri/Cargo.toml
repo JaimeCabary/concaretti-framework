@@ -1,0 +1,29 @@
+[package]
+name = "concaretti"
+version = "0.1.0"
+description = "Concaretti-Light desktop shell"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+# The overlay's shortcut, and its one capability.
+#
+# Four crates, and the shell is still not a second path to the filesystem: none
+# of them can open a file by name. `xcap` reads a display, `image` encodes the
+# frame as PNG in memory, `base64` makes it postable to the backend, and the
+# shortcut plugin listens for a keypress. Nothing here writes anything.
+tauri-plugin-global-shortcut = "2"
+xcap = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

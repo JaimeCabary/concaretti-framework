@@ -1,0 +1,638 @@
+@import "tailwindcss";
+
+/*
+  Concaretti — soft-clean, the way the app actually looked.
+
+  This file used to draw the *written* spec: 2px `#1A1A1A` borders on every box
+  and a hard `5px 5px 0` offset shadow behind it. Held against screenshots of the
+  running app, that was wrong — the real surfaces are white cards on cream with a
+  **hairline** border at 8% ink, a generous radius, and **no shadow at all**.
+  Structure comes from whitespace and fill, not from outline weight. Twenty
+  bordered, shadowed rectangles per screen is what made this read as clustered,
+  and it is the one thing the design was trying to avoid.
+
+  Four rules produce the look:
+
+  1. **Cream ground, white cards, hairline edges.** The field is `#FFFBF0`, cards
+     are pure white, and the edge between them is `#1a1a1a` at 8% alpha. Nothing
+     is translucent, nothing is blurred, and nothing is outlined in black.
+
+  2. **No offset shadows.** Elevation is either nothing (cards, rows, inputs) or
+     a soft ambient blur reserved for things that genuinely float — a modal, the
+     overlay window. `--shadow-*` are now blurs, not slabs.
+
+  3. **Pastel fills carry identity; black carries text.** Every accent is a
+     pastel used as a *fill*, with black text over it and no border. Two tokens
+     per accent: `--color-x` is ink for text, `--color-x-soft` is the fill.
+
+  4. **Pills, not rectangles.** Buttons, chips and the active nav item are
+     `border-radius: 999px` with a soft fill and no outline. The press feedback
+     is a 2% scale and a fill shift — the old translate-into-your-own-shadow
+     vocabulary needs a shadow to translate into, and there isn't one.
+
+  Anton is the load-bearing element. It ships a single weight, so `.type-display`
+  sets `font-weight: 400` and the base `h1..h6` reset deliberately does NOT set
+  800 the way the original did — asking a browser to bolden Anton produces a
+  smeared faux-bold, which is why bare headings in the original look mushy while
+  `.type-display` looks right.
+*/
+@theme {
+  /* ── Ground and surfaces ────────────────────────────────────────────────
+     Cream field, white cards. Deliberately only 4% apart in lightness: the
+     separation between a card and the page is carried by a hairline edge and by
+     the space around it, not by contrast. */
+  --color-void: #fffbf0;
+  --color-obsidian: #ffffff;
+  --color-raised: #fffbf0;
+  --color-elevated: #f5f0e8;
+
+  /* A hairline again, as the name always said. 8% ink: visible as an edge,
+     invisible as a line. The ~90 existing `border-hairline` utilities pick this
+     up unchanged. */
+  --color-hairline: #1a1a1a14;
+
+  --color-fg: #1a1a1a;
+  --color-dim: #666666;
+  --color-muted: #999999;
+
+  /* Text drawn on a solid accent fill. Always black: every fill here is a
+     pastel, and white on a pastel never clears 3:1. */
+  --color-on-accent: #1a1a1a;
+
+  /* ── Brand ──────────────────────────────────────────────────────────── */
+  --color-council: #1a1a1a;
+  --color-council-soft: #ffd93d;
+
+  /* ── Per-screen accents ─────────────────────────────────────────────────
+     Fills only. `Panel` renders these as a swatch beside a black title rather
+     than as the title colour — a pastel title on white is unreadable, and the
+     original app draws its headings in black for exactly this reason. */
+  --color-calendar: #cde6d8;
+  --color-telecom: #f0d5ee;
+  --color-diary: #f5dce5;
+  --color-email: #ffddc4;
+  --color-study: #cfe8f5;
+  --color-reports: #d4f1d4;
+
+  /* ── Semantic states ────────────────────────────────────────────────────
+     Two tokens each. The ink is what `text-ok` resolves to and clears 4.5:1 on
+     white; the soft is what `bg-ok-soft` fills with. */
+  --color-ok: #2e7d46;
+  --color-ok-soft: #d4f1d4;
+  --color-warn: #7a5c00;
+  --color-warn-soft: #ffe9a3;
+  --color-danger: #b23b32;
+  --color-danger-soft: #ffd6d6;
+  --color-info: #1b6fb8;
+  --color-info-soft: #cfe8f5;
+
+  /* ── Agent identity ─────────────────────────────────────────────────────
+     Sixteen pastels, evenly spaced around the wheel so no two are confusable
+     at chip size, plus three deeper tones for the money agents. These are
+     **fills**, not text colours: `AgentTag` paints one as a background under
+     black text and a black border, the same shape as the original's
+     `.neo-badge`.
+
+     Read by name at runtime — `var(--color-agent-<slug>)` in `ui.tsx` — so this
+     block is the single source of truth. An agent added to `.conca` without a
+     token here falls back to the council yellow rather than rendering
+     colourless, and no TypeScript table has to be kept in step. */
+  --color-agent-chaos: #ffd6d6;
+  --color-agent-email: #ffddc4;
+  --color-agent-news: #ffe8cc;
+  --color-agent-deploy: #ffe9a3;
+  --color-agent-coding: #edefa8;
+  --color-agent-file: #d4f1d4;
+  --color-agent-calendar: #cde6d8;
+  --color-agent-browser: #c9eae4;
+  --color-agent-scheduler: #cfe8f5;
+  --color-agent-health: #d2def7;
+  --color-agent-research: #dcd3f0;
+  --color-agent-github: #e3d5f5;
+  --color-agent-orchestrator: #e8d4ff;
+  --color-agent-sms: #f0d5ee;
+  --color-agent-social: #f5dce5;
+  --color-agent-therapy: #ffd3de;
+
+  /* The three that can move money, deliberately a shade heavier than the rest.
+     Sixteen near-identical pastels tell you which agent acted; they do not tell
+     you which agents are the consequential ones. A slightly saturated chip does,
+     at a glance, in a list where `shopper` sits between `research` and `news`. */
+  --color-agent-shopper: #ffc98a;
+  --color-agent-market: #9fe0b8;
+  --color-agent-chain: #a8d8f0;
+
+  /* ── Type ───────────────────────────────────────────────────────────────
+     Indirected so no use site names a family. Anton for display, DM Sans for
+     body, Instrument Serif for the italic tagline, system mono — self-hosted
+     via @fontsource in `main.tsx`, so all four survive offline in the service
+     worker and both native wrappers. Mono stays a system stack: it saves a
+     download and every platform already has a good one. */
+  --font-display: "Anton", "Lexend", "DM Sans", system-ui, sans-serif;
+  --font-body:
+    "DM Sans Variable", "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  /* Tailwind's own `font-sans` should resolve to the body face, so the ~40
+     existing `font-sans` utilities pick up DM Sans without being touched. */
+  --font-sans:
+    "DM Sans Variable", "DM Sans", system-ui, -apple-system, sans-serif;
+}
+
+/*
+  Structural tokens. Unlayered on purpose — unlayered declarations beat anything
+  inside an `@layer` regardless of source order, so Tailwind's base cannot undo
+  them however the layers end up ordered.
+*/
+:root {
+  color-scheme: light;
+
+  --border: 1px solid #1a1a1a14;
+  --border-thick: 1px solid #1a1a1a24;
+
+  /*
+    Blurs, not slabs. Nothing in the resting UI carries one: cards, rows, inputs
+    and buttons are all `box-shadow: none`. These exist for the two things that
+    genuinely float above the page — the onboarding modal and the always-on-top
+    overlay window — where an ambient shadow is the only cue that a surface is
+    detached. `--shadow-sm` is kept as a near-nothing so the ~20 use sites that
+    reference it degrade to a whisper rather than to a hard black rectangle.
+  */
+  --shadow-sm: 0 1px 2px #1a1a1a0a;
+  --shadow-md: 0 2px 8px #1a1a1a0f;
+  --shadow-lg: 0 8px 30px #1a1a1a14;
+  --shadow-xl: 0 18px 60px #1a1a1a1f;
+
+  --radius: 14px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+}
+
+/*
+  Utility retune — also unlayered, and also on purpose.
+
+  Roughly forty places across the components apply the border as a Tailwind
+  utility (`border-2 border-fg`, `border-b-2`, `divide-y-2 divide-fg`) rather
+  than through a component class, so softening `.panel` alone would leave a
+  screen with hairline cards and 2px black rules inside them. A utility is a
+  single class selector, and an unlayered rule outbids a layered one at equal
+  specificity, so these six lines retune every one of those sites without
+  touching a single component file.
+
+  This is a deliberate global override, not a workaround: in this design there is
+  no surface anywhere that wants a 2px black outline. If one ever does, it should
+  ask for it by name rather than by re-deriving the old default.
+*/
+.border-2 {
+  border-width: 1px;
+}
+.border-t-2 {
+  border-top-width: 1px;
+}
+.border-b-2 {
+  border-bottom-width: 1px;
+}
+.border-l-2 {
+  border-left-width: 1px;
+}
+.border-r-2 {
+  border-right-width: 1px;
+}
+.border-fg {
+  border-color: #1a1a1a14;
+}
+.divide-fg > * {
+  border-color: #1a1a1a14;
+}
+[class*="divide-y"] > :not(:last-child) {
+  border-bottom-width: 1px;
+}
+
+/* ── Type pairing ─────────────────────────────────────────────────────────
+   .type-tagline  → italic serif intro line   ("Nine agents, one command —")
+   .type-display  → condensed black uppercase ("TELL THE COUNCIL")
+   .type-mono     → typewriter accents, labels                              */
+.type-tagline {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+.type-display {
+  font-family: var(--font-display);
+  font-weight: 400; /* Anton is single-weight — already black. Never 800. */
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  line-height: 0.95;
+}
+.type-mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+    min-width: 0;
+  }
+
+  html {
+    background: var(--color-void);
+    color: var(--color-fg);
+    /* Respect notches on mobile without a plugin. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+    /* A hard shadow sits *outside* its element's box, so any panel near the
+       right edge can push the document sideways. Clamping here is cheaper than
+       auditing every panel's margin. */
+    max-width: 100vw;
+
+    /*
+      `clip`, emphatically not `hidden` — this is the difference between a page
+      that scrolls and a page that only scrolls if you drag the bar.
+
+      `overflow-x: hidden` makes the element a scroll *container*, and a scroll
+      container cannot have `overflow-y: visible` — the used value is forced to
+      `auto`. So `overflow-x: hidden` on both html and body produced two nested
+      scrollports. The document scroller ended up on html while the wheel's
+      nearest scroll container was body, whose own content fits, so the wheel had
+      nothing to move — and `overscroll-behavior-y: none` (below, previously on
+      body) is precisely the property that forbids handing that scroll up to
+      html. Wheel dead, scrollbar alive, no error anywhere.
+
+      `overflow-x: clip` clips without creating a scroll container, so
+      `overflow-y` stays `visible`, there is exactly one scroller, and the wheel
+      reaches it. Chromium ≥ 90, which covers WebView2 and both wrappers.
+    */
+    overflow-x: clip;
+    /* Kill pull-to-refresh and the rubber band on the *real* scroller, where it
+       was meant to go. */
+    overscroll-behavior-y: none;
+    /* Reserve the bar's width always, so opening a long panel doesn't shift the
+       whole layout sideways by 10px. */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    max-width: 100vw;
+    overflow-x: clip;
+
+    /*
+      Inherited, and set once here rather than as `break-words` on each of the
+      nine places backend text is rendered.
+
+      Search results, artifact paths, payload hashes and normalised commands all
+      arrive containing tokens longer than any panel is wide. `whitespace-pre-wrap`
+      keeps their newlines but cannot break a word, so a single long URL widened
+      the answer panel past `max-w-2xl`, past the page container, and took the
+      sticky header off-screen with it — the whole document scrolled sideways.
+      A mid-word break is ugly; an app that scrolls horizontally is broken.
+    */
+    overflow-wrap: break-word;
+  }
+
+  /*
+    The overlay window, which is transparent and undecorated.
+
+    `main.tsx` puts this class on <html> when the hash says `#overlay`. Both
+    surfaces have to go clear: painting the cream field here would draw an opaque
+    rectangle over the desktop the overlay floats above, which is the one thing
+    an always-on-top window must not do. The card inside `Overlay` supplies the
+    border and the shadow, so the chrome is drawn by the component rather than by
+    the window manager.
+  */
+  html.overlay-window,
+  html.overlay-window body {
+    background: transparent;
+    /* An undecorated window has no title bar to grab and no scrollbar worth
+       showing at 620×460 — the plan list scrolls inside the card instead. */
+    overflow: hidden;
+  }
+
+  /*
+    Headings get Anton, and deliberately do NOT get a weight.
+
+    The original sets `font-weight: 800` here, which is why its bare headings
+    render as smeared faux-bold while `.type-display` (weight 400) renders
+    clean. Anton has one weight; asking for more synthesises it.
+  */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    line-height: 1.1;
+    margin: 0;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  ::selection {
+    /* Flat yellow, not a mix — the same slab the original uses. */
+    background: var(--color-council-soft);
+    color: var(--color-fg);
+  }
+
+  /* Thin, and only ink enough to find. The thought stream scrolls constantly and
+     a 10px black bar was the loudest element on a quiet screen. */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1a1a1a24;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #1a1a1a3d;
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-fg);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* Rainbow pride stripe — kept exactly as the original spec requires. */
+  .rainbow-bar {
+    height: 4px;
+    width: 100%;
+    background: linear-gradient(
+      90deg,
+      #ff6b6b,
+      #ffd93d,
+      #6bcb77,
+      #4dabf7,
+      #b8a9dc,
+      #ff6b6b
+    );
+    background-size: 200% 100%;
+    animation: rainbow-slide 3s linear infinite;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 10001;
+  }
+
+  .panel {
+    background: var(--color-obsidian);
+    border: var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: none;
+  }
+
+  /*
+    The same panel with its box taken away.
+
+    A screen made of eight white rectangles on cream reads as eight competing
+    objects — and when most of them are empty placeholders it reads as a form
+    nobody filled in. This variant keeps the heading and the rhythm and drops the
+    container entirely: no fill, no border. Structure is carried by whitespace
+    and one hairline rule under the title.
+
+    `.panel` is kept for the things that genuinely are cards — a HALO gate, the
+    composer, a month in the calendar grid. Ambient readouts use this.
+  */
+  .panel-quiet {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .panel-quiet > .panel-head {
+    padding-inline: 0;
+    padding-block: 0 0.5rem;
+    border-bottom: var(--border);
+  }
+  .panel-quiet > .panel-head + div {
+    padding-top: 0.75rem;
+  }
+
+  .panel-head {
+    @apply flex items-center justify-between gap-3 px-4 py-3;
+    border-bottom: var(--border);
+  }
+
+  /* The swatch that carries a screen's accent, since the title itself is black.
+     A 12px filled round-rect, no outline — at 8% ink a border on a 12px square
+     is just a smudge. */
+  .panel-swatch {
+    display: inline-block;
+    inline-size: 12px;
+    block-size: 12px;
+    flex: none;
+    border-radius: 4px;
+  }
+
+  /* A pill, filled, unoutlined. `Chip tone="ok"` layers `bg-ok-soft` over this,
+     so the neutral fill has to be the *default* rather than white — white on
+     white is not a chip. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold
+      uppercase text-fg;
+    font-family: var(--font-mono);
+    letter-spacing: 0.06em;
+    background: var(--color-elevated);
+    border: 0;
+    border-radius: 999px;
+  }
+
+  /*
+    Buttons are pills that shift fill.
+
+    The old vocabulary was translate-into-your-own-shadow, which needs a shadow
+    to translate into; there isn't one any more, and a button that slides 3px
+    with nothing behind it just looks broken. So: fill change on hover, 2% scale
+    on press. 40px min-height still clears the touch target this ships with
+    through Capacitor, at 4px less visual weight than the old 44.
+  */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm
+      font-semibold text-fg disabled:pointer-events-none disabled:opacity-40;
+    min-height: 40px;
+    background: var(--color-obsidian);
+    border: var(--border);
+    border-radius: 999px;
+    box-shadow: none;
+    transition:
+      background-color 120ms ease,
+      transform 90ms ease;
+  }
+  .btn:hover:not(:disabled) {
+    background: var(--color-elevated);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.975);
+  }
+
+  /* Filled buttons drop the edge — a hairline over a pastel is a seam, not an
+     outline. This is the "Ask Agent" / "This Year" pair from the reference. */
+  .btn-primary {
+    background: var(--color-council-soft);
+    border-color: transparent;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-council-soft);
+    filter: brightness(0.96);
+  }
+
+  .btn-danger {
+    background: var(--color-danger-soft);
+    border-color: transparent;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--color-danger-soft);
+    filter: brightness(0.96);
+  }
+
+  .field {
+    @apply w-full px-3.5 py-2.5 text-sm text-fg placeholder:text-muted focus:outline-none;
+    background: var(--color-obsidian);
+    border: var(--border);
+    border-radius: var(--radius);
+    box-shadow: none;
+    transition: border-color 120ms ease;
+  }
+  /* Focus is a darker edge, not an elevation change — a field that gains a
+     shadow on focus appears to lift off the card it is sitting in. */
+  .field:focus {
+    border-color: #1a1a1a3d;
+  }
+
+  /*
+    The recessed block: model output, payload hashes, normalised commands, event
+    rows, sub-cards inside a panel.
+
+    Cream on white, hairline, no shadow. Every list in this app is built from
+    these; at 2px black they turned a twelve-row stream into twelve buttons.
+    Replaces ~14 hand-written `rounded-lg border border-hairline/50 bg-raised/50`
+    triples, which is also why the radius lives in one place now.
+  */
+  .inset {
+    background: var(--color-void);
+    border: var(--border);
+    border-radius: var(--radius);
+  }
+
+  /* Same block, tinted. Used where the row's state is the point — a blocked
+     subtask, a Rule-0 notice, a refusal. The pastel comes from a `bg-*-soft`
+     utility at the use site, so this only supplies the structure; the edge goes
+     to transparent because a hairline over a pastel fill reads as a seam. */
+  .inset-flat {
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+  }
+
+  /*
+    A pressable tile: `.btn`'s interaction vocabulary without its centred,
+    single-line layout.
+
+    The agent dock is a grid of sixteen of these, each carrying a title and a
+    blurb, so `.btn`'s `inline-flex` + `justify-center` + height floor is the
+    wrong box. The fill comes from the agent token at the use site, the same way
+    `.inset-flat` takes its tint, so hover shifts brightness rather than colour.
+  */
+  .tile {
+    border: var(--border);
+    border-radius: var(--radius);
+    box-shadow: none;
+    transition:
+      filter 120ms ease,
+      transform 90ms ease;
+  }
+  .tile:hover:not(:disabled) {
+    filter: brightness(0.97);
+  }
+  .tile:active:not(:disabled) {
+    transform: scale(0.99);
+  }
+  .tile:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@keyframes rainbow-slide {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+/* A slow shimmer for in-flight work. Deliberately subtle: this can be on screen
+   for a long time during a HALO pause, and anything faster becomes irritating. */
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+/* Onboarding slide crossfade. CSS-only — no animation library ships here. */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 260ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-soft {
+    animation: none;
+    opacity: 0.8;
+  }
+  .animate-slide-in {
+    animation: none;
+  }
+  .rainbow-bar {
+    animation: none;
+  }
+  /* The press-in is motion. Keep the affordance as a shadow change only, so
+     buttons still respond without anything sliding. */
+  .btn:hover:not(:disabled),
+  .btn:active:not(:disabled),
+  .tile:hover:not(:disabled) {
+    transform: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}

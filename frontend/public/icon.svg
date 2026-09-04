@@ -1,0 +1,21 @@
+<!--
+  Three agents converging on one gate: the council, and the checkpoint.
+
+  Same motif as before, repainted in the app's palette: yellow slab, black border,
+  black strokes, pastel nodes. Nothing translucent, nothing blurred, and no text —
+  a favicon renders at 16px, where a wordmark is illegible and Anton is not
+  available anyway, since a webfont cannot load inside an icon.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Concaretti">
+  <rect x="4" y="4" width="120" height="120" rx="20" fill="#FFD93D" stroke="#1A1A1A" stroke-width="8"/>
+  <g fill="none" stroke="#1A1A1A" stroke-width="8" stroke-linecap="round">
+    <path d="M36 42 L64 64"/>
+    <path d="M36 86 L64 64"/>
+    <path d="M64 64 L94 64"/>
+  </g>
+  <circle cx="36" cy="42" r="10" fill="#DCD3F0" stroke="#1A1A1A" stroke-width="5"/>
+  <circle cx="36" cy="86" r="10" fill="#CFE8F5" stroke="#1A1A1A" stroke-width="5"/>
+  <!-- The gate: filled black, because it is the one thing here that refuses. -->
+  <circle cx="64" cy="64" r="12" fill="#1A1A1A"/>
+  <circle cx="94" cy="64" r="10" fill="#D4F1D4" stroke="#1A1A1A" stroke-width="5"/>
+</svg>
