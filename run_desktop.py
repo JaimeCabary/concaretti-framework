@@ -83,19 +83,8 @@ def main():
     else:
         print("[+] Existing backend detected on port 8000.")
 
-    # 2. Determine target URL (Dev server if running, otherwise built FastAPI mount)
+    # 2. Always connect desktop shell to the FastAPI server (serving frontend/dist)
     target_url = "http://127.0.0.1:8000"
-    
-    # Check if Vite dev server is running on 5174 or 5173
-    for dev_port in (5174, 5173):
-        try:
-            r = httpx.get(f"http://localhost:{dev_port}/", timeout=0.5)
-            if r.status_code == 200:
-                target_url = f"http://localhost:{dev_port}"
-                print(f"[+] Connected to live Vite dev server at {target_url}")
-                break
-        except Exception:
-            pass
 
     # 3. Create native desktop window
     storage_dir = ROOT_DIR / ".webview_data"
@@ -113,7 +102,7 @@ def main():
     )
     
     # 4. Start native GUI loop with persistent storage
-    webview.start(debug=False, private_mode=False, storage_path=str(storage_dir))
+    webview.start(debug=True, private_mode=False, storage_path=str(storage_dir))
 
 
 if __name__ == "__main__":
