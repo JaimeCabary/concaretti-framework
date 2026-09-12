@@ -82,6 +82,7 @@ export function TutorialTour() {
       steps={steps}
       run={run}
       onEvent={handleJoyrideEvent}
+      locale={{ last: "Next" }}
       options={{
         arrowColor: "#18181B",
         backgroundColor: "#18181B",
