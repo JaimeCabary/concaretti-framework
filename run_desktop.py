@@ -50,7 +50,50 @@ def start_backend():
     from main import app
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
 
+def apply_window_icon(window):
+    """Set the native Windows window icon via Win32 API."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    icon_path = str(ROOT_DIR / "icon.ico")
+    if not os.path.exists(icon_path):
+        return
+
+    for _ in range(20):
+        time.sleep(0.4)
+        try:
+            hwnd = None
+            if hasattr(window, "native") and window.native:
+                hwnd = int(window.native.Handle)
+            if not hwnd:
+                hwnd = ctypes.windll.user32.FindWindowW(None, "Concaretti")
+            if hwnd:
+                IMAGE_ICON = 1
+                LR_LOADFROMFILE = 0x00000010
+                WM_SETICON = 0x0080
+                h_icon_big = ctypes.windll.user32.LoadImageW(
+                    None, icon_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE
+                )
+                h_icon_small = ctypes.windll.user32.LoadImageW(
+                    None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE
+                )
+                if h_icon_big:
+                    ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, 1, h_icon_big)
+                if h_icon_small:
+                    ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, 0, h_icon_small)
+                break
+        except Exception:
+            pass
+
+
 def main():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("concaretti.multiagent.os")
+        except Exception:
+            pass
+
     # Read operator profile if present
     profile_file = ROOT_DIR / "user_profile.json"
     user_name = ""
@@ -101,9 +144,11 @@ def main():
         easy_drag=False,
     )
     
-    # 4. Start native GUI loop with persistent storage
+    # 4. Start native GUI loop with persistent storage and debug/reload enabled
+    threading.Thread(target=apply_window_icon, args=(window,), daemon=True).start()
     webview.start(debug=True, private_mode=False, storage_path=str(storage_dir))
 
 
 if __name__ == "__main__":
     main()
+

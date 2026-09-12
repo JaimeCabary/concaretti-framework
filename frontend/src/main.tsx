@@ -33,15 +33,21 @@ if (!root) throw new Error("#root missing from index.html");
  * the API client and the HALO gate. Two entries would mean two bundles of the
  * same code, and the overlay would be the copy that quietly falls behind.
  */
-const isOverlay = window.location.hash.replace(/^#\/?/, "") === "overlay";
+const hash = window.location.hash.replace(/^#\/?/, "");
+const isOverlay = hash === "overlay";
+const isHud = hash === "hud";
 
 // Transparent, undecorated window: the cream field belongs to the main window,
 // and painting it here would draw an opaque rectangle over the desktop the
 // overlay is supposed to float above. The card inside `Overlay` is the chrome.
-if (isOverlay) document.documentElement.classList.add("overlay-window");
+if (isOverlay || isHud) document.documentElement.classList.add("overlay-window");
+
+import { ThoughtHUD } from "./components/ThoughtHUD";
 
 createRoot(root).render(
-  <StrictMode>{isOverlay ? <Overlay /> : <App />}</StrictMode>,
+  <StrictMode>
+    {isOverlay ? <Overlay /> : isHud ? <ThoughtHUD /> : <App />}
+  </StrictMode>,
 );
 
 // Registered only in a production build: the dev server serves modules the

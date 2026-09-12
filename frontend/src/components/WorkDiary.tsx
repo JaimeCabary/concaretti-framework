@@ -10,7 +10,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../lib/api";
 import { useAgentStore } from "../store/agentStore";
 import type { DiaryEntry } from "../types";
-import { Chip } from "./ui";
 
 const toDateString = (d: Date) => {
   const year = d.getFullYear();
@@ -54,7 +53,6 @@ export function WorkDiary() {
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(todayString());
   const [activeLeftTab, setActiveLeftTab] = useState<"calendar" | "entries">("calendar");
-  const [isComposing, setIsComposing] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
   // Calendar navigation state
@@ -92,10 +90,10 @@ export function WorkDiary() {
 
   // Pull AI agent-written summary into the editor when ready
   useEffect(() => {
-    if (finalSummary && assisted && isComposing) {
+    if (finalSummary && assisted) {
       setSummary(finalSummary.trim());
     }
-  }, [finalSummary, assisted, isComposing]);
+  }, [finalSummary, assisted]);
 
   // Map entries by date for instant calendar dot lookup
   const entriesByDate = useMemo(() => {
@@ -190,9 +188,32 @@ export function WorkDiary() {
 
   const handleSelectDay = (dateStr: string) => {
     setSelectedDate(dateStr);
-    setIsComposing(false);
-    setEditingEntryId(null);
+    const dayEntries = entriesByDate.get(dateStr) || [];
+    if (dayEntries.length > 0) {
+      const e = dayEntries[0];
+      setEditingEntryId(e.id);
+      setSummary(e.summary);
+      setReflection(e.reflection || "");
+      setAssisted(Boolean(e.agent_assisted));
+    } else {
+      setEditingEntryId(null);
+      setSummary("");
+      setReflection("");
+      setAssisted(false);
+    }
   };
+
+  // Sync selected day's first entry to notebook on load
+  useEffect(() => {
+    const dayEntries = entriesByDate.get(selectedDate) || [];
+    if (dayEntries.length > 0 && !editingEntryId && !summary) {
+      const e = dayEntries[0];
+      setEditingEntryId(e.id);
+      setSummary(e.summary);
+      setReflection(e.reflection || "");
+      setAssisted(Boolean(e.agent_assisted));
+    }
+  }, [entriesByDate, selectedDate, editingEntryId, summary]);
 
   // Ask AI Agent to synthesize a summary from today's sessions
   const askAgent = () => {
@@ -208,13 +229,12 @@ export function WorkDiary() {
     );
   };
 
-  // Start composing or editing
+  // Start a blank page for the current date
   const startNewEntry = () => {
     setSummary("");
     setReflection("");
     setAssisted(false);
     setEditingEntryId(null);
-    setIsComposing(true);
   };
 
   const startEditEntry = (entry: DiaryEntry) => {
@@ -222,14 +242,6 @@ export function WorkDiary() {
     setReflection(entry.reflection || "");
     setAssisted(Boolean(entry.agent_assisted));
     setEditingEntryId(entry.id);
-    setIsComposing(true);
-  };
-
-  const cancelCompose = () => {
-    setIsComposing(false);
-    setEditingEntryId(null);
-    setSummary("");
-    setReflection("");
   };
 
   const saveEntry = async () => {
@@ -240,17 +252,15 @@ export function WorkDiary() {
       if (editingEntryId) {
         await api.deleteDiaryEntry(editingEntryId);
       }
-      await api.addDiaryEntry({
+      const res = await api.addDiaryEntry({
         day: selectedDate,
         summary: summary.trim(),
         reflection: reflection.trim(),
         agent_assisted: assisted,
       });
-      setIsComposing(false);
-      setEditingEntryId(null);
-      setSummary("");
-      setReflection("");
-      setAssisted(false);
+      if (res && res.entry) {
+        setEditingEntryId(res.entry.id);
+      }
       load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to save diary entry");
@@ -262,6 +272,10 @@ export function WorkDiary() {
   const deleteEntry = async (id: string) => {
     try {
       await api.deleteDiaryEntry(id);
+      setEditingEntryId(null);
+      setSummary("");
+      setReflection("");
+      setAssisted(false);
       load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to delete entry");
@@ -412,222 +426,145 @@ export function WorkDiary() {
               <span className="type-mono text-[10px] text-muted uppercase tracking-wider font-bold">
                 {activeLeftTab === "calendar" ? `Entries on ${selectedDate}` : "Recent Entries"}
               </span>
-              <button
-                type="button"
-                onClick={startNewEntry}
-                className="type-mono text-[10px] text-fg hover:underline font-bold"
-              >
-                + Add Diary Entry
-              </button>
             </div>
 
             {selectedEntries.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
                 <p className="type-mono text-xs text-muted">
-                  No entries for this date
+                  No entries recorded for this date
                 </p>
               </div>
             ) : (
               <div className="space-y-2">
-                {selectedEntries.map((e) => (
-                  <div
-                    key={e.id}
-                    onClick={() => startEditEntry(e)}
-                    className="p-2.5 bg-void border border-hairline hover:border-fg cursor-pointer transition-colors space-y-1 text-left"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="type-mono text-[10px] text-muted">
-                        {e.day}
-                      </span>
-                      {e.agent_assisted ? (
-                        <span className="type-mono text-[8px] bg-info-soft text-info px-1 py-0.2 uppercase font-bold">
-                          AI
+                {selectedEntries.map((e) => {
+                  const isCurrent = editingEntryId === e.id;
+                  return (
+                    <div
+                      key={e.id}
+                      onClick={() => startEditEntry(e)}
+                      className={`p-2.5 bg-void border ${
+                        isCurrent ? "border-2 border-fg bg-elevated/80 shadow-2xs" : "border-hairline hover:border-fg"
+                      } cursor-pointer transition-colors space-y-1 text-left rounded`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="type-mono text-[10px] text-muted">
+                          {e.day}
                         </span>
-                      ) : null}
-                    </div>
-                    <p className="text-xs font-bold text-fg truncate">
-                      {e.summary}
-                    </p>
-                    {e.reflection && (
-                      <p className="text-[11px] text-dim line-clamp-2">
-                        {e.reflection}
+                        {e.agent_assisted ? (
+                          <span className="type-mono text-[8px] bg-info-soft text-info px-1 py-0.2 uppercase font-bold rounded">
+                            AI
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-xs font-bold text-fg truncate">
+                        {e.summary}
                       </p>
-                    )}
-                  </div>
-                ))}
+                      {e.reflection && (
+                        <p className="text-[11px] text-dim line-clamp-2">
+                          {e.reflection}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Side: Notepad & Editor */}
-        <div className="panel bg-obsidian border-2 border-fg p-4 sm:p-5 flex flex-col min-h-0 h-full overflow-hidden">
-          {/* Notepad Header */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-hairline pb-3 shrink-0">
+        {/* Right Side: Authentic Lined Notebook Paper with Margins & Cursive Writing Area */}
+        <div className="notebook-sheet rounded-2xl border-2 border-fg/20 p-0 flex flex-col min-h-0 h-full overflow-hidden shadow-sm relative">
+          {/* 3-Hole Punch Binder Cutouts along far left margin */}
+          <div className="absolute left-3.5 top-12 size-3.5 rounded-full bg-[#E8E3D7] border border-[#1A1A1A]/20 shadow-inner z-10 pointer-events-none" />
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 size-3.5 rounded-full bg-[#E8E3D7] border border-[#1A1A1A]/20 shadow-inner z-10 pointer-events-none" />
+          <div className="absolute left-3.5 bottom-12 size-3.5 rounded-full bg-[#E8E3D7] border border-[#1A1A1A]/20 shadow-inner z-10 pointer-events-none" />
+
+          {/* Notebook Header Bar */}
+          <div className="pl-[70px] pr-5 pt-3.5 pb-2 border-b border-rose-200/50 flex flex-wrap items-center justify-between gap-2 shrink-0 bg-transparent">
             <div>
-              <p className="type-mono text-xs text-muted tracking-widest uppercase font-bold">
-                {dateInfo.isToday ? "TODAY" : "SELECTED DATE"}
-              </p>
-              <h2 className="type-display text-2xl sm:text-[30px] leading-tight text-fg font-extrabold mt-0.5">
-                {dateInfo.numeric}
-              </h2>
-              <p className="text-xs text-dim font-medium">
+              <h2 className="font-cursive text-2xl sm:text-3xl text-fg font-bold tracking-wide select-none leading-none">
                 {dateInfo.full}
-              </p>
+              </h2>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="type-mono text-[9.5px] uppercase tracking-widest text-muted font-bold">
+                  {editingEntryId ? "Recorded Entry" : "New Entry"}
+                </span>
+                {assisted && (
+                  <span className="type-mono text-[9px] bg-info-soft text-info px-1.5 py-0.5 rounded font-bold">
+                    AI-Assisted
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={askAgent}
+                disabled={running}
+                className="type-mono text-[11px] font-bold px-3 py-1.5 bg-obsidian border border-hairline hover:border-fg text-fg rounded transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5"
+                title="Draft diary summary from today's work sessions"
+              >
+                {running && assisted ? "Council drafting..." : "Draft with Council AI"}
+              </button>
+
+              {editingEntryId && (
+                <>
+                  <button
+                    type="button"
+                    onClick={startNewEntry}
+                    className="type-mono text-[11px] font-bold px-2.5 py-1.5 bg-obsidian border border-hairline hover:border-fg text-fg rounded transition-colors shadow-2xs cursor-pointer"
+                    title="Write a new entry for this day"
+                  >
+                    + New Note
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteEntry(editingEntryId)}
+                    className="type-mono text-[11px] font-bold px-2.5 py-1.5 bg-obsidian border border-hairline hover:border-danger hover:text-danger text-muted rounded transition-colors shadow-2xs cursor-pointer"
+                    title="Delete this entry"
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+
+              <button
+                type="button"
+                onClick={saveEntry}
+                disabled={!summary.trim() || saving}
+                className="btn btn-primary text-xs py-1.5 px-4 font-bold uppercase rounded shadow-2xs cursor-pointer"
+              >
+                {saving ? "Saving..." : editingEntryId ? "Update Note" : "Save Note"}
+              </button>
             </div>
           </div>
 
-          {/* Notepad Content Area */}
-          {isComposing ? (
-            /* Composing / Editing Mode */
-            <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden animate-slide-in">
-              <div className="flex items-center justify-between gap-2 border-b border-hairline pb-2 shrink-0">
-                <span className="type-mono text-xs font-bold text-fg uppercase">
-                  {editingEntryId ? "Edit Diary Entry" : "New Notepad Entry"}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={askAgent}
-                  disabled={running}
-                  className="type-mono text-xs font-bold px-3 py-1 bg-void border border-hairline hover:border-fg text-fg transition-colors flex items-center gap-1.5"
-                >
-                  <span>✨</span>
-                  {running && assisted ? "Agent drafting..." : "Ask Agent to draft from today"}
-                </button>
-              </div>
-
-              <div className="space-y-2.5 flex-1 min-h-0 flex flex-col overflow-hidden">
-                <div className="shrink-0">
-                  <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="diary-summary">
-                    Title / Day Highlight
-                  </label>
-                  <input
-                    id="diary-summary"
-                    type="text"
-                    value={summary}
-                    onChange={(e) => setSummary(e.target.value)}
-                    placeholder="e.g. Completed market research & fixed frontend layout"
-                    className="w-full bg-void border-2 border-hairline focus:border-fg p-2.5 text-xs font-medium outline-none transition-colors"
-                  />
-                </div>
-
-                <div className="flex-1 min-h-0 flex flex-col">
-                  <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="diary-reflection">
-                    Notes & Reflections
-                  </label>
-                  <textarea
-                    id="diary-reflection"
-                    value={reflection}
-                    onChange={(e) => setReflection(e.target.value)}
-                    placeholder="Write your thoughts, ideas, what went well, or what you learned today..."
-                    className="w-full flex-1 min-h-[100px] resize-none bg-void border-2 border-hairline focus:border-fg p-2.5 text-xs leading-relaxed outline-none transition-colors"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-hairline shrink-0">
-                  {assisted ? (
-                    <Chip tone="info" title="AI Agent helped draft this entry">
-                      AI Assisted
-                    </Chip>
-                  ) : (
-                    <div />
-                  )}
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={cancelCompose}
-                      disabled={saving}
-                      className="btn bg-void border border-hairline hover:bg-elevated px-4 py-1.5 text-xs font-bold uppercase"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={saveEntry}
-                      disabled={!summary.trim() || saving}
-                      className="btn bg-[#68D391] text-black border-2 border-black shadow-[2px_2px_0px_#000] hover:brightness-95 px-6 py-1.5 text-xs font-extrabold uppercase"
-                    >
-                      {saving ? "Saving..." : "Save Diary Entry"}
-                    </button>
-                  </div>
-                </div>
-              </div>
+          {/* Lined Notebook Writing Body with Cursive Handwriting */}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden pl-[70px] pr-6 pt-2 pb-4">
+            {/* Title / Day Highlight Input */}
+            <div className="shrink-0 mb-1">
+              <input
+                type="text"
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                placeholder={summary || reflection ? "" : "Day highlight or title..."}
+                className="w-full font-cursive text-2xl sm:text-3xl font-bold text-fg bg-transparent outline-none placeholder:text-muted/40 focus:placeholder-transparent leading-[34px]"
+                style={{ lineHeight: "34px" }}
+              />
             </div>
-          ) : selectedEntries.length > 0 ? (
-            /* Reading Existing Entries for Selected Date */
-            <div className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-1">
-              {selectedEntries.map((e) => (
-                <div key={e.id} className="border-2 border-fg bg-void p-4 shadow-[3px_3px_0px_#000] space-y-2.5">
-                  <div className="flex items-start justify-between gap-3 border-b border-hairline pb-2.5">
-                    <div className="space-y-1">
-                      <h3 className="type-display text-lg font-bold text-fg">
-                        {e.summary}
-                      </h3>
-                      {e.agent_assisted ? (
-                        <span className="type-mono text-[9px] bg-info-soft text-info px-2 py-0.5 border border-hairline font-bold uppercase">
-                          Agent-assisted
-                        </span>
-                      ) : null}
-                    </div>
 
-                    <div className="flex gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => startEditEntry(e)}
-                        className="type-mono text-[10px] px-2 py-0.5 border border-hairline hover:border-fg bg-obsidian text-fg font-bold"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteEntry(e.id)}
-                        className="type-mono text-[10px] px-2 py-0.5 border border-hairline hover:border-danger hover:text-danger bg-obsidian text-dim font-bold"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {e.reflection ? (
-                    <div className="p-3 bg-obsidian border border-hairline">
-                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-fg/90">
-                        {e.reflection}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={startNewEntry}
-                  className="btn bg-[#2D3748] text-white hover:bg-black text-xs px-5 py-2 border-2 border-black shadow-[3px_3px_0px_#000] transition-all font-bold tracking-wider uppercase"
-                >
-                  + Add Another Diary Entry
-                </button>
-              </div>
+            {/* Ruled Body Lines Textarea */}
+            <div className="flex-1 min-h-0 flex flex-col pt-1">
+              <textarea
+                value={reflection}
+                onChange={(e) => setReflection(e.target.value)}
+                placeholder={summary || reflection ? "" : "Dear Diary, write your thoughts, progress, or reflections for today..."}
+                className="w-full flex-1 font-cursive text-xl sm:text-2xl text-fg bg-transparent outline-none resize-none placeholder:text-muted/40 focus:placeholder-transparent leading-[34px]"
+                style={{ lineHeight: "34px" }}
+              />
             </div>
-          ) : (
-            /* Empty State for Date — Single prominent properly-named Action */
-            <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-8 text-center">
-              <p className="type-display text-xl text-fg mb-1">
-                No entry recorded for this day
-              </p>
-              <p className="text-xs text-dim max-w-sm mb-4">
-                Capture your thoughts, progress, or let the council agents summarize your achievements.
-              </p>
-              <button
-                type="button"
-                onClick={startNewEntry}
-                className="btn bg-[#2D3748] text-white hover:bg-black text-xs px-6 py-2.5 border-2 border-black shadow-[3px_3px_0px_#000] transition-all font-bold tracking-wider uppercase"
-              >
-                + Add Diary Entry
-              </button>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

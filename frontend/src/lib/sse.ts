@@ -22,6 +22,7 @@ const EVENT_TYPES: SseEventType[] = [
   "halo_resolved",
   "artifact",
   "error",
+  "token",
   "done",
 ];
 

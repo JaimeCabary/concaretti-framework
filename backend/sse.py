@@ -31,6 +31,7 @@ EventType = Literal[
     "artifact",
     "error",
     "done",
+    "voice_trigger",
 ]
 
 QUEUE_MAXSIZE = 256
@@ -135,8 +136,14 @@ class SseBroker:
     def error(self, session_id: str, message: str, **extra: Any) -> None:
         self.publish(session_id, "error", {"message": message, **extra})
 
+    def token(self, session_id: str, delta: str) -> None:
+        self.publish(session_id, "token", {"delta": delta})
+
     def done(self, session_id: str, summary: str = "") -> None:
         self.publish(session_id, "done", {"summary": summary})
+
+    def voice_trigger(self, session_id: str, message: str = "") -> None:
+        self.publish(session_id, "voice_trigger", {"message": message})
 
     def clear_history(self, session_id: str) -> None:
         self._history.pop(session_id, None)

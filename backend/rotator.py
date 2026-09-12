@@ -42,8 +42,16 @@ import asyncio
 import json
 import os
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Callable, Literal
+from dotenv import load_dotenv
+
+_backend_env = Path(__file__).resolve().parent / ".env"
+if _backend_env.exists():
+    load_dotenv(_backend_env)
+else:
+    load_dotenv()
 
 import httpx
 
@@ -220,7 +228,23 @@ def _dedupe(ladder: list[ModelInfo]) -> list[ModelInfo]:
 # listed first and generic words are kept out of them. "buy" belongs to shopper,
 # not to file, and "screen" must not be a research word.
 _AGENT_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "desktop": ("screen", "screenshot", "my display", "what am i looking at"),
+    "desktop": (
+        "screen",
+        "screenshot",
+        "my display",
+        "what am i looking at",
+        "on-screen keyboard",
+        "onscreen keyboard",
+        "osk",
+        "mouse cursor",
+        "move mouse",
+        "click mouse",
+        "keystroke",
+        "keyboard clack",
+        "acoustic clack",
+        "launch app",
+        "desktop agent",
+    ),
     # "price of" is deliberately absent: it matched "stock price of NVDA" and
     # sent a quote request to the shopper, which the routing test caught.
     "shopper": ("buy", "shop", "purchase", "order", "cart", "checkout", "keyboard"),
@@ -378,6 +402,48 @@ _STUB_DESCRIPTION = {
 # Keywords are only consulted for an agent the first level already selected, so
 # common words are safe: "run" only steers `file`, "buy" only steers `market`.
 _TASK_KEYWORDS: dict[str, tuple[tuple[tuple[str, ...], str, str], ...]] = {
+    "desktop": (
+        (
+            ("on-screen keyboard", "onscreen keyboard", "osk"),
+            "open_onscreen_keyboard",
+            "Launch Windows on-screen keyboard so keystrokes are visible in real-time",
+        ),
+        (
+            ("type", "keystroke", "acoustic clack", "keyboard clack"),
+            "keyboard_type",
+            "Type text into active window with acoustic mechanical clacks",
+        ),
+        (
+            ("move mouse", "glide cursor", "cursor to", "mouse to"),
+            "mouse_move",
+            "Glide mouse cursor smoothly to target coordinates with Bezier easing",
+        ),
+        (
+            ("click", "mouse click", "double click"),
+            "mouse_click",
+            "Click mouse button at target coordinates",
+        ),
+        (
+            ("drag", "mouse drag"),
+            "mouse_drag",
+            "Drag mouse cursor to target coordinates",
+        ),
+        (
+            ("hotkey", "shortcut", "win+", "alt+", "ctrl+"),
+            "keyboard_hotkey",
+            "Send OS keyboard shortcut",
+        ),
+        (
+            ("launch app", "open app", "start notepad", "start calc", "open notepad"),
+            "launch_app",
+            "Launch native desktop application",
+        ),
+        (
+            ("screen", "screenshot", "display"),
+            "screen_capture",
+            "Read the screen and describe what is on it",
+        ),
+    ),
     "shopper": (
         (
             ("check out", "checkout", "place the order", "buy it now", "pay for it"),

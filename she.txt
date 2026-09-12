@@ -1,0 +1,32 @@
+Design & Architecture
+Hayk Simonyan is a senior software engineer, architect, and founder of Dev Mastery (publishing on YouTube, Substack, Medium’s Level Up Coding, and Udemy) known for teaching production-grade system design.
+
+Here is how his core architectural doctrines map to modern distributed systems and Concaretti:
+
+Load Balancers (L4 vs. L7 & Redundancy):
+
+Take: A load balancer is only a scalability tool if it isn't itself a Single Point of Failure (SPOF). Production systems must run redundant active-passive or active-active pairs with health checks.
+L4 vs. L7: L4 handles high-throughput TCP/UDP packet routing; L7 handles application-aware HTTP routing (path-based routing, TLS termination, header inspection).
+Concaretti Relation: Concaretti operates as an application-level L7 orchestrator: it dispatches tasks based on semantic classification and capability matching rather than raw round-robin.
+Circuit Breakers (Fault Tolerance):
+
+Take: In distributed architectures, failing fast is superior to hanging indefinitely. A circuit breaker transitions through three states:
+Closed: Normal operations; calls proceed.
+Open: Error thresholds breached; calls fail immediately without hitting the downstream service, preventing cascading collapse and thread starvation.
+Half-Open: Periodic probe requests to determine if the downstream service has recovered.
+Concaretti Relation: Concaretti implements this in the model ladder: failed provider slots fail-through with zero delay, and the deterministic planner acts as the absolute fallback circuit.
+Synchronous vs. Asynchronous Parts:
+
+Take: Never hold a client connection open for heavy work. Keep ingestion/validation synchronous, and offload execution to asynchronous event queues (event-driven architecture, write-ahead logs, message brokers).
+Concaretti Relation: Concaretti answers /api/prompt synchronously in under 10 ms with a session_id, while orchestrator planning, tool dispatch, and streaming occur asynchronously over Server-Sent Events (SSE) and DAG execution layers.
+Data Layer & Memory Layer:
+
+Take: Strict separation of the compute/web tier from the state tier. Use polyglot persistence:
+Multi-tier caching: L1 in-memory local cache, L2 shared cache, L3 durable write-ahead log (WAL) database.
+Cache Invalidation: Cache-Aside vs. Write-Through depending on read vs. write heavy workloads.
+Concaretti Relation: Concaretti uses a 4-tier memory architecture (SQLite WAL relational store + compressed transcripts + sqlite-vec 768-dim embeddings + Hikari markdown context).
+Frontend Web Vitals (FCP, LCP, TBT):
+
+FCP (First Contentful Paint < 1.8s): When the user sees the first DOM content. Concaretti achieves this via static pre-compiled Vite bundles and instant skeleton loaders.
+LCP (Largest Contentful Paint < 2.5s): When the primary screen content renders. We optimized this by replacing heavy spinners with lightweight pulsing skeletons.
+TBT (Total Blocking Time < 200ms): Time the main thread is blocked by JavaScript execution. By keeping state localized in Zustand and avoiding heavy runtime libraries, main-thread blocking is negligible.

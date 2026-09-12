@@ -133,6 +133,7 @@
     "DM Sans Variable", "DM Sans", system-ui, -apple-system, sans-serif;
   --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  --font-cursive: "Caveat", "Segoe Script", "Segoe Print", "Apple Chancery", "Brush Script MT", cursive;
 
   /* Tailwind's own `font-sans` should resolve to the body face, so the ~40
      existing `font-sans` utilities pick up DM Sans without being touched. */
@@ -147,6 +148,27 @@
 */
 :root {
   color-scheme: light;
+
+  /* Agent runtime color variables */
+  --color-agent-chaos: #F472B6;
+  --color-agent-email: #FDBA74;
+  --color-agent-news: #FDE047;
+  --color-agent-deploy: #C084FC;
+  --color-agent-coding: #38BDF8;
+  --color-agent-file: #C4F135;
+  --color-agent-calendar: #A7F3D0;
+  --color-agent-browser: #93C5FD;
+  --color-agent-scheduler: #FDE047;
+  --color-agent-health: #FCA5A5;
+  --color-agent-research: #D8B4FE;
+  --color-agent-github: #67E8F9;
+  --color-agent-orchestrator: #E9D5FF;
+  --color-agent-sms: #FBCFE8;
+  --color-agent-social: #FED7AA;
+  --color-agent-therapy: #FECDD3;
+  --color-agent-shopper: #FEF08A;
+  --color-agent-market: #BAE6FD;
+  --color-agent-chain: #DDD6FE;
 
   --border: 1px solid #1a1a1a14;
   --border-thick: 1px solid #1a1a1a24;
@@ -237,6 +259,16 @@
   * {
     -webkit-tap-highlight-color: transparent;
     min-width: 0;
+  }
+
+  ::selection {
+    background-color: rgba(0, 229, 255, 0.3);
+    color: inherit;
+  }
+
+  .select-text, article, p, pre, code, blockquote {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   html {
@@ -615,6 +647,26 @@
   animation: slide-in 260ms ease-out;
 }
 
+/* Uiverse Modern Audio Equalizer Waves */
+@keyframes soundwave {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 13px;
+  }
+}
+
+.animate-soundwave-1 {
+  animation: soundwave 0.7s ease-in-out infinite;
+}
+.animate-soundwave-2 {
+  animation: soundwave 0.7s ease-in-out infinite 0.2s;
+}
+.animate-soundwave-3 {
+  animation: soundwave 0.7s ease-in-out infinite 0.4s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse-soft {
     animation: none;
@@ -637,3 +689,28 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Lined Notebook Paper Aesthetics */
+.font-cursive {
+  font-family: var(--font-cursive);
+}
+
+.notebook-sheet {
+  background-color: #fffdf9;
+  background-image:
+    /* Red/pink vertical margin line at 58px */
+    linear-gradient(to right, transparent 56px, rgba(244, 63, 94, 0.45) 56px, rgba(244, 63, 94, 0.45) 57.5px, transparent 57.5px),
+    /* Crisp notebook blue horizontal ruled lines every 34px */
+    repeating-linear-gradient(to bottom, transparent, transparent 33px, rgba(147, 197, 253, 0.4) 33px, rgba(147, 197, 253, 0.4) 34px);
+  background-size: 100% 100%, 100% 34px;
+  background-position: 0 0, 0 16px;
+}
+
+.notebook-sheet:focus-within input::placeholder,
+.notebook-sheet:focus-within textarea::placeholder,
+.notebook-sheet input:focus::placeholder,
+.notebook-sheet textarea:focus::placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+

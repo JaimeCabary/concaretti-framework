@@ -1,14 +1,13 @@
 """
 Autonomous Sentinel Watcher Loop.
 
-Runs intermittently in the background, actively monitoring:
+Runs intermittently in the background, auditing and recording system telemetry:
 - Upcoming calendar deadlines (<24h)
-- Unread emails & pending SMS/call approvals
 - Active paper market positions
 - Zero-trust security perimeter integrity
 
-Publishes periodic cognitive telemetry to the active stream so the council is
-always alive, listening, and monitoring autonomously.
+All events are recorded strictly to the audit log (viewable under Settings -> Logs).
+Sentinel telemetry is NEVER emitted as an agent thought into active user conversation streams.
 """
 
 from __future__ import annotations
@@ -19,64 +18,65 @@ from typing import Any
 
 from memory import get_store
 from security import load_policy, DEFAULT_POLICY_PATH
-from sse import get_broker
 
 
 async def sentinel_loop(state: dict[str, Any]) -> None:
-    broker = get_broker()
     store = get_store()
     ticks = 0
 
     while True:
         try:
-            await asyncio.sleep(25)
+            await asyncio.sleep(30)
             ticks += 1
 
-            # Find the most recent active session to narrate onto
-            sessions = store.list_sessions()
-            target_session = sessions[0]["id"] if sessions else None
-            if not target_session:
-                continue
-
-            # 1. Calendar check
+            # 1. Calendar check -> log to audit log only
             now_ts = int(time.time())
             horizon = now_ts + 86400
-            events = store.list_events_range(now_ts, horizon)
-            if events and ticks % 2 == 0:
-                ev = events[0]
-                broker.thought(
-                    target_session,
-                    f"calendar: [Sentinel Watch] Active surveillance: upcoming scheduled milestone '{ev['title']}' within 24h.",
-                    agent="calendar",
-                    model="sentinel-watcher",
-                    tier="autonomous",
-                )
+            try:
+                events = store.list_events_range(now_ts, horizon)
+                if events and ticks % 4 == 0:
+                    ev = events[0]
+                    store.log_audit(
+                        None,
+                        "sentinel",
+                        "calendar_watch",
+                        "monitored",
+                        f"Upcoming milestone '{ev.get('title', 'event')}' within 24h",
+                    )
+            except Exception:
+                pass
 
-            # 2. Market / Portfolio check
-            if ticks % 3 == 0:
-                book = store.read_book()
-                pos_count = len(book.get("positions", []))
-                broker.thought(
-                    target_session,
-                    f"market: [Sentinel Watch] Tracking {pos_count} paper trading position(s). Volatility indices nominal.",
-                    agent="market",
-                    model="sentinel-watcher",
-                    tier="autonomous",
-                )
-
-            # 3. Security & Zero-Trust Perimeter pulse
+            # 2. Market / Portfolio check -> log to audit log only
             if ticks % 4 == 0:
-                p = load_policy(DEFAULT_POLICY_PATH)
-                enabled = len(p.enabled_agents())
-                broker.thought(
-                    target_session,
-                    f"orchestrator: [Sentinel Heartbeat] Council perimeter active. {enabled} agents authorized under .conca zero-trust policy.",
-                    agent="orchestrator",
-                    model="sentinel-watcher",
-                    tier="autonomous",
-                )
+                try:
+                    book = store.read_book() if hasattr(store, "read_book") else {}
+                    pos_count = len(book.get("positions", []))
+                    store.log_audit(
+                        None,
+                        "sentinel",
+                        "market_watch",
+                        "monitored",
+                        f"Tracking {pos_count} paper trading position(s).",
+                    )
+                except Exception:
+                    pass
+
+            # 3. Security & Zero-Trust Perimeter pulse -> log to audit log only
+            if ticks % 4 == 0:
+                try:
+                    p = load_policy(DEFAULT_POLICY_PATH)
+                    enabled = len(p.enabled_agents())
+                    store.log_audit(
+                        None,
+                        "sentinel",
+                        "perimeter_heartbeat",
+                        "active",
+                        f"Council perimeter active. {enabled} agents authorized under .conca zero-trust policy.",
+                    )
+                except Exception:
+                    pass
 
         except asyncio.CancelledError:
             break
         except Exception as exc:
-            print(f"[concaretti-sentinel] error: {exc}")
+            print(f"[concaretti-sentinel] watcher error: {exc}")

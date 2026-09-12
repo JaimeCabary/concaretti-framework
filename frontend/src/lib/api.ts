@@ -11,6 +11,7 @@
 import type {
   AgentRegistry,
   Artifact,
+  AttachedFile,
   AuditEntry,
   BalancesResult,
   BriefingResult,
@@ -19,6 +20,7 @@ import type {
   CaptureStatus,
   CardStashed,
   ChainHistoryResult,
+  ClientContext,
   ConcaStatus,
   ConnectResult,
   DiaryEntry,
@@ -135,6 +137,17 @@ const post = <T>(path: string, body?: unknown) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
+const patch = <T>(path: string, body?: unknown) =>
+  request<T>(path, {
+    method: "PATCH",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+const del = <T>(path: string) =>
+  request<T>(path, {
+    method: "DELETE",
+  });
+
 const qs = (params: Record<string, string | number | undefined | null>) => {
   const pairs = Object.entries(params).filter(
     ([, v]) => v !== undefined && v !== null && v !== "",
@@ -144,6 +157,31 @@ const qs = (params: Record<string, string | number | undefined | null>) => {
         pairs.map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&")
     : "";
 };
+
+export function getClientContext(): ClientContext {
+  const now = new Date();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const locale = navigator.language || "en-US";
+  const local_time = now.toLocaleString(locale, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  });
+  const parts = timezone.split("/");
+  const city = parts.length > 1 ? parts[parts.length - 1].replace(/_/g, " ") : timezone;
+
+  return {
+    timezone,
+    local_time,
+    locale,
+    city,
+  };
+}
 
 export const api = {
   // ── auth ─────────────────────────────────────────────────────────────────
@@ -220,18 +258,50 @@ export const api = {
     request<SystemMetrics>(
       "/api/metrics/system" + qs({ window_hours: windowHours }),
     ),
-
   // ── agent runs ───────────────────────────────────────────────────────────
-  run: (prompt: string, sessionId?: string) =>
+  run: (
+    prompt: string,
+    sessionId?: string,
+    attachments?: AttachedFile[],
+    clientContext?: ClientContext,
+    isTemporary?: boolean,
+  ) =>
     post<{
       ok: boolean;
       session_id: string;
       stream: string;
       rule0_excluded: boolean;
-    }>("/api/agents/run", { prompt, session_id: sessionId ?? null }),
+    }>("/api/agents/run", {
+      prompt,
+      session_id: sessionId ?? null,
+      attachments: attachments ?? null,
+      client_context: clientContext ?? getClientContext(),
+      is_temporary: isTemporary ?? false,
+    }),
+  cancelRun: (sessionId: string) =>
+    post<{ ok: boolean; session_id: string; cancelled: boolean }>(
+      `/api/agents/cancel/${sessionId}`,
+    ),
+  uploadFile: (file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return request<AttachedFile>("/api/upload", {
+      method: "POST",
+      body: form,
+    });
+  },
   sessions: () => request<{ sessions: SessionSummary[] }>("/api/sessions"),
   session: (sessionId: string) =>
     request<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`),
+  renameSession: (sessionId: string, title: string) =>
+    patch<{ ok: boolean; session_id: string; title: string }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}`,
+      { title },
+    ),
+  deleteSession: (sessionId: string) =>
+    del<{ ok: boolean; session_id: string }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}`,
+    ),
 
   // ── HALO ─────────────────────────────────────────────────────────────────
   /** Recovers a gate opened before this client connected (or after a reload). */

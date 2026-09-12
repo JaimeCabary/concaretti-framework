@@ -20,6 +20,7 @@
 import { useEffect } from "react";
 import { HaloGate } from "./components/HaloGate";
 import { Onboarding } from "./components/Onboarding";
+import { TutorialTour } from "./components/TutorialTour";
 import { useAgentStore } from "./store/agentStore";
 import { PublicScreen } from "./screens/PublicScreen";
 import { StaffScreen } from "./screens/StaffScreen";
@@ -89,6 +90,9 @@ export function App() {
       {/* First run only, and self-gating on localStorage. Rendered last so it
           paints over the shell it is describing. */}
       <Onboarding />
+
+      {/* Interactive feature tour post-onboarding */}
+      <TutorialTour />
     </>
   );
 }

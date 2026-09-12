@@ -67,7 +67,15 @@ export type SseEventType =
   | "halo_resolved"
   | "artifact"
   | "error"
+  | "token"
   | "done";
+
+export interface ClientContext {
+  timezone: string;
+  local_time: string;
+  locale: string;
+  city?: string;
+}
 
 /**
  * Every frame carries `ts` and `session_id`; the rest depends on the type.
@@ -97,6 +105,29 @@ export interface SseEvent {
 
 // ── memory.py ──────────────────────────────────────────────────────────────
 
+export interface AttachedFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  preview?: string;
+  content?: string;
+  path?: string;
+}
+
+export interface ChatTurn {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  ts: number;
+  agent?: string;
+  status?: "running" | "done" | "error";
+  thoughts?: SseEvent[];
+  subtasks?: Subtask[];
+  artifacts?: Artifact[];
+  attachments?: AttachedFile[];
+}
+
 export interface Artifact {
   id: string;
   session_id: string;
@@ -114,6 +145,8 @@ export interface SessionSummary {
   role: string | null;
   title: string;
   summary: string;
+  is_temporary?: boolean | number;
+  expires_at?: number | null;
 }
 
 export interface ContextEntry {

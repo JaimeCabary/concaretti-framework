@@ -26,6 +26,15 @@ dependencies = [
     "playwright>=1.47",
     "pyautogui>=0.9.54",
     "mss>=10.2.0",
+    "uiautomation>=2.0.29",
+    "pillow>=12.3.0",
+    "pywinauto>=0.6.9",
+    "pynput>=1.8.2",
+    "edge-tts>=7.2.8",
+    "pygame>=2.6.1",
+    "SpeechRecognition>=3.17.0",
+    "pocketsphinx>=5.1.1",
+    "PyAudio>=0.2.14",
 ]
 
 [dependency-groups]

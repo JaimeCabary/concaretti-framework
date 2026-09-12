@@ -7,38 +7,67 @@
 // was that "a native command surface here would be a second path to the
 // filesystem that the policy engine never sees."
 //
-// One command now exists, and that argument is the reason for its shape.
-// `capture_screen` takes no arguments, names no path, and returns bytes rather
-// than a filename. So it adds a way to *read the display* — a capability the
-// backend screens — and does not add a way to reach the filesystem, which would
-// be a capability the backend cannot see. Everything decided about the captured
-// frame is decided server-side: whether policy permits capture at all, whether a
-// HALO gate opens first, which model reads it, and whether the resulting
-// description may enter the vector index.
+// One command now exists (capture_screen), and one background process is now
+// managed (the backend sidecar). The sidecar is a PyInstaller-compiled binary
+// of the FastAPI backend bundled inside the installer — users do not need
+// Python or uv installed. It is spawned on app start, health-polled until ready,
+// and killed when the last window closes.
 //
-// VERIFIED: `cargo check` passes clean on x86_64-pc-windows-msvc against
-// tauri 2.11.5, xcap 0.4.1, image 0.25.10, base64 0.22.1 and
-// tauri-plugin-global-shortcut 2.3.2. Two things had to be fixed to get there,
-// both worth knowing: `icons/` was empty, so `tauri-build` failed before it ever
-// reached the Rust, and `register` could not return `tauri::Result` because the
-// shortcut plugin's error type has no `From` impl into `tauri::Error`.
-//
-// The web and mobile builds still do not depend on any of this. If it ever stops
-// compiling, delete `capture.rs`, `overlay.rs`, the `overlay` window in
-// `tauri.conf.json` and the four lines below, and the app is what it was.
+// VERIFIED: `cargo check` passes clean on x86_64-pc-windows-msvc.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capture;
 mod overlay;
+mod sidecar;
+
+use sidecar::AppState;
+use std::sync::Mutex;
+use tauri::{Manager, RunEvent, WindowEvent};
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .manage(AppState {
+            backend: Mutex::new(None),
+        })
         .setup(|app| {
+            // Register the global overlay shortcut.
             overlay::register(app.handle())?;
+
+            // Spawn the backend sidecar and wait until it is healthy.
+            // This runs synchronously in setup so the window is not created
+            // before the API is reachable.
+            //
+            // In `tauri dev` mode the backend is expected to be running
+            // separately (started by the developer), so spawn_and_wait will
+            // see it already healthy and skip the spawn step.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Err(e) = sidecar::spawn_and_wait(&handle) {
+                    eprintln!("[sidecar] startup failed: {e}");
+                    // Show the main window anyway — the frontend will display
+                    // its own offline banner when /api/health is unreachable.
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![capture::capture_screen])
-        .run(tauri::generate_context!())
-        .expect("error while running Concaretti");
+        .build(tauri::generate_context!())
+        .expect("error while building Concaretti")
+        .run(|app, event| {
+            // Kill the backend when the last window closes.
+            if let RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { .. },
+                ..
+            } = &event
+            {
+                // Only act on the main window, not the overlay.
+                if label == "main" {
+                    sidecar::kill(app);
+                }
+            }
+        });
 }

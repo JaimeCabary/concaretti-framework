@@ -338,7 +338,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     summary       TEXT DEFAULT '',
     prompt        TEXT DEFAULT '',
     is_temporary  INTEGER DEFAULT 0,
-    deleted       INTEGER DEFAULT 0
+    deleted       INTEGER DEFAULT 0,
+    expires_at    REAL DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS context_entries (
@@ -541,6 +542,9 @@ class MemoryStore:
     # fail on the first query. Listed as (table, column, DDL).
     _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
         ("sms_messages", "kind", "TEXT DEFAULT 'sms'"),
+        ("sessions", "is_temporary", "INTEGER DEFAULT 0"),
+        ("sessions", "deleted", "INTEGER DEFAULT 0"),
+        ("sessions", "expires_at", "REAL DEFAULT NULL"),
     )
 
     def _migrate(self) -> None:
@@ -593,7 +597,11 @@ class MemoryStore:
     # ── sessions ─────────────────────────────────────────────────────────
 
     def create_session(
-        self, role: str | None = None, prompt: str = "", title: str = ""
+        self,
+        role: str | None = None,
+        prompt: str = "",
+        title: str = "",
+        is_temporary: bool = False,
     ) -> str:
         """
         Open a session row.
@@ -608,10 +616,13 @@ class MemoryStore:
         if contains_secret_material(prompt) or contains_secret_material(title):
             prompt = SECRET_PLACEHOLDER
             title = SECRET_PLACEHOLDER
+        now = time.time()
+        temp_flag = 1 if is_temporary else 0
+        expires_at = (now + 86400) if is_temporary else None
         self._conn.execute(
-            "INSERT INTO sessions (id, created_at, role, title, prompt) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (sid, time.time(), role, title or prompt[:80], prompt),
+            "INSERT INTO sessions (id, created_at, role, title, prompt, is_temporary, expires_at, deleted) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+            (sid, now, role, title or prompt[:80], prompt, temp_flag, expires_at),
         )
         self._conn.commit()
         return sid
@@ -627,20 +638,52 @@ class MemoryStore:
             prompt = SECRET_PLACEHOLDER
             title = SECRET_PLACEHOLDER
         self._conn.execute(
-            "INSERT OR IGNORE INTO sessions (id, created_at, role, title, prompt) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO sessions (id, created_at, role, title, prompt, is_temporary, deleted) "
+            "VALUES (?, ?, ?, ?, ?, 0, 0)",
             (session_id, time.time(), role, title or prompt[:80], prompt),
         )
         self._conn.commit()
         return session_id
 
     def list_sessions(self, limit: int = 40) -> list[dict[str, Any]]:
+        now = time.time()
+        # Automatically prune expired temporary sessions (>24h old)
+        try:
+            self._conn.execute(
+                "DELETE FROM sessions WHERE deleted = 1 OR (is_temporary = 1 AND (expires_at IS NOT NULL AND expires_at < ? OR created_at < ?))",
+                (now, now - 86400),
+            )
+            self._conn.commit()
+        except Exception:
+            pass
+
         rows = self._conn.execute(
-            "SELECT id, created_at, role, title, summary FROM sessions "
+            "SELECT id, created_at, role, title, summary, is_temporary, expires_at FROM sessions "
+            "WHERE deleted = 0 "
             "ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def rename_session(self, session_id: str, title: str) -> bool:
+        """Rename a session's human-readable title."""
+        cleaned = title.strip() or "Untitled session"
+        if contains_secret_material(cleaned):
+            cleaned = SECRET_PLACEHOLDER
+        self._conn.execute(
+            "UPDATE sessions SET title = ? WHERE id = ?",
+            (cleaned, session_id),
+        )
+        self._conn.commit()
+        return True
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session, its context entries, and associated artifacts."""
+        self._conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        self._conn.execute("DELETE FROM context_entries WHERE session_id = ?", (session_id,))
+        self._conn.execute("DELETE FROM artifacts WHERE session_id = ?", (session_id,))
+        self._conn.commit()
+        return True
 
     def set_summary(self, session_id: str, summary: str) -> None:
         self._conn.execute(

@@ -7,7 +7,7 @@
     "frontendDist": "../../frontend/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "pnpm -C ../frontend dev",
-    "beforeBuildCommand": "pnpm -C ../frontend build"
+    "beforeBuildCommand": "pnpm -C ../frontend build --mode desktop"
   },
   "app": {
     "withGlobalTauri": true,
@@ -37,6 +37,21 @@
         "resizable": false,
         "shadow": false,
         "center": true
+      },
+      {
+        "label": "hud",
+        "title": "Thought HUD",
+        "url": "index.html#hud",
+        "width": 800,
+        "height": 200,
+        "visible": false,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "y": 100
       }
     ],
     "security": {
@@ -44,13 +59,16 @@
         "default-src": "'self'",
         "img-src": "'self' data: blob:",
         "style-src": "'self' 'unsafe-inline'",
-        "connect-src": "'self' http://127.0.0.1:8000 http://localhost:8000"
+        "connect-src": "'self' http://127.0.0.1:8000 http://localhost:8000",
+        "script-src": "'self'"
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis", "dmg", "deb", "appimage"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
+    "externalBin": ["binaries/concaretti-backend"],
+    "resources": []
   }
 }

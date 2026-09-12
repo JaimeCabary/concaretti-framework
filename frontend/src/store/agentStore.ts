@@ -16,7 +16,11 @@ import { api, ApiError } from "../lib/api";
 import { subscribe, type SseHandle } from "../lib/sse";
 import type {
   Artifact,
+  AttachedFile,
+  CalendarEvent,
+  ChatTurn,
   ConcaStatus,
+  EmailMessage,
   HaloRequest,
   Role,
   RotatorStatus,
@@ -55,6 +59,7 @@ interface AgentState {
   // ── live run ────────────────────────────────────────────────────────────
   sessionId: string | null;
   running: boolean;
+  turns: ChatTurn[];
   /** True when the prompt tripped Rule 0 — the UI says so rather than hiding it. */
   rule0Excluded: boolean;
   events: SseEvent[];
@@ -64,16 +69,33 @@ interface AgentState {
   conn: ConnState;
   lastError: string | null;
   finalSummary: string | null;
+  streamingText: string | null;
 
-  // ── ambient ─────────────────────────────────────────────────────────────
   conca: ConcaStatus | null;
   rotator: RotatorStatus | null;
   sessions: SessionSummary[];
   offline: boolean;
 
+  // ── cached services (instantly fetched on load) ──────────────────────────
+  emails: EmailMessage[];
+  emailsLoading: boolean;
+  emailsConnected: boolean;
+  emailsNotice: string | null;
+  refreshEmails: () => Promise<void>;
+
+  calendarEvents: CalendarEvent[];
+  calendarLoading: boolean;
+  refreshCalendar: () => Promise<void>;
+
   // ── actions ─────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>;
-  runPrompt: (prompt: string) => Promise<void>;
+  runPrompt: (
+    prompt: string,
+    attachments?: AttachedFile[],
+    isTemporary?: boolean,
+  ) => Promise<void>;
+  renameSession: (sessionId: string, title: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   attachSession: (sessionId: string) => void;
   /**
    * Adopt a run a panel started instead of the composer.
@@ -95,6 +117,7 @@ interface AgentState {
   /** Re-read the policy after an edit, so the panel shows what is now enforced. */
   refreshConca: () => Promise<void>;
   clearRun: () => void;
+  stopRun: () => Promise<void>;
   dismissError: () => void;
   setUserName: (name: string) => void;
 }
@@ -114,6 +137,13 @@ const detach = () => {
 const eventKey = (e: SseEvent) =>
   `${e.type}:${e.ts}:${e.text ?? e.message ?? e.summary ?? ""}`;
 
+function findLastAssistantIndex(turns: ChatTurn[]): number {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].role === "assistant") return i;
+  }
+  return -1;
+}
+
 export const useAgentStore = create<AgentState>((set, get) => ({
   role: "public",
   userName: typeof window !== "undefined" ? localStorage.getItem("conca_user_name") || "" : "",
@@ -125,6 +155,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   sessionId: null,
   running: false,
+  turns: [],
   rule0Excluded: false,
   events: [],
   subtasks: [],
@@ -133,11 +164,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   conn: "idle",
   lastError: null,
   finalSummary: null,
+  streamingText: null,
 
   conca: null,
   rotator: null,
   sessions: [],
   offline: false,
+
+  emails: [],
+  emailsLoading: false,
+  emailsConnected: true,
+  emailsNotice: null,
+
+  calendarEvents: [],
+  calendarLoading: false,
 
   // ────────────────────────────────────────────────────────────────────────
 
@@ -178,6 +218,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       // Non-critical; a missing rotator status should not block the app shell.
       void get().refreshRotator();
       void get().refreshSessions();
+      // Pre-fetch live emails and calendar events instantly on load
+      void get().refreshEmails();
+      void get().refreshCalendar();
     } catch (err) {
       // Offline start-up is a supported path for the PWA: fall through to the
       // public screen from cache rather than showing a dead page.
@@ -189,32 +232,64 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  async runPrompt(prompt) {
+  async runPrompt(prompt, attachments, isTemporary) {
     const trimmed = prompt.trim();
     if (!trimmed || get().running) return;
 
     const currentSessionId = get().sessionId;
     const isNewSession = !currentSessionId;
 
+    const userTurn: ChatTurn = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: trimmed,
+      ts: Date.now() / 1000,
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
+    };
+    const asstTurn: ChatTurn = {
+      id: `asst-${Date.now() + 1}`,
+      role: "assistant",
+      content: "",
+      ts: Date.now() / 1000,
+      status: "running",
+      thoughts: [],
+      subtasks: [],
+      artifacts: [],
+    };
+
     if (isNewSession) {
       detach();
       set({
         running: true,
+        turns: [userTurn, asstTurn],
         events: [],
         subtasks: [],
         artifacts: [],
         pendingHalo: null,
         finalSummary: null,
+        streamingText: "",
         lastError: null,
         conn: "idle",
         rule0Excluded: false,
       });
     } else {
-      set({ running: true, lastError: null, finalSummary: null });
+      set({
+        running: true,
+        turns: [...get().turns, userTurn, asstTurn],
+        lastError: null,
+        finalSummary: null,
+        streamingText: "",
+      });
     }
 
     try {
-      const res = await api.run(trimmed, currentSessionId || undefined);
+      const res = await api.run(
+        trimmed,
+        currentSessionId || undefined,
+        attachments,
+        undefined,
+        isTemporary,
+      );
       set({ sessionId: res.session_id, rule0Excluded: res.rule0_excluded });
       if (isNewSession) {
         get().attachSession(res.session_id);
@@ -232,6 +307,41 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     detach();
     set({ sessionId, conn: "idle" });
 
+    // Restore conversation history from SQLite for persistence across re-attachments
+    void api.session(sessionId).then((detail) => {
+      // Never wipe in-flight running turns or existing populated turns in current session
+      if (get().running) return;
+      if (detail && detail.entries && detail.entries.length > 0) {
+        if (get().sessionId === sessionId && get().turns.length >= detail.entries.length) {
+          return;
+        }
+        const loadedTurns: ChatTurn[] = [];
+        for (const entry of detail.entries) {
+          if (entry.role === "user") {
+            loadedTurns.push({
+              id: `user-${entry.ts}`,
+              role: "user",
+              content: entry.content,
+              ts: entry.ts,
+            });
+          } else if (entry.role === "assistant") {
+            loadedTurns.push({
+              id: `asst-${entry.ts}`,
+              role: "assistant",
+              content: entry.content,
+              agent: entry.agent ?? undefined,
+              ts: entry.ts,
+              status: "done",
+              thoughts: [],
+              subtasks: [],
+              artifacts: detail.artifacts || [],
+            });
+          }
+        }
+        set({ turns: loadedTurns, artifacts: detail.artifacts || [] });
+      }
+    }).catch(() => {});
+
     handle = subscribe(
       sessionId,
       (event) => {
@@ -239,18 +349,80 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         // Frames for a session we've since moved off are stale — drop them.
         if (event.session_id && event.session_id !== s.sessionId) return;
 
+        // Sentinel heartbeat & watch telemetry belongs strictly in Settings -> Logs, NEVER in user thought streams
+        const isSentinel =
+          /\[sentinel\b/i.test(String(event.text ?? event.message ?? "")) ||
+          event.agent === "sentinel";
+        if (isSentinel) {
+          return;
+        }
+
         const patch: Partial<AgentState> = {};
 
         switch (event.type) {
           case "subtask_update": {
             const incoming = event as unknown as Subtask;
             const idx = s.subtasks.findIndex((t) => t.id === incoming.id);
-            patch.subtasks =
+            const nextSubtasks =
               idx === -1
                 ? [...s.subtasks, incoming]
                 : s.subtasks.map((t, i) =>
                     i === idx ? { ...t, ...incoming } : t,
                   );
+            patch.subtasks = nextSubtasks;
+
+            const activeTurns = [...(patch.turns || s.turns)];
+            let lastAsstIdx = findLastAssistantIndex(activeTurns);
+            if (lastAsstIdx === -1) {
+              activeTurns.push({
+                id: `asst-${Date.now()}`,
+                role: "assistant",
+                content: "",
+                ts: Date.now() / 1000,
+                status: "running",
+                thoughts: [],
+                subtasks: [incoming],
+                artifacts: [],
+              });
+              patch.turns = activeTurns;
+            } else {
+              const curr = activeTurns[lastAsstIdx];
+              const stList = curr.subtasks || [];
+              const sIdx = stList.findIndex((t) => t.id === incoming.id);
+              activeTurns[lastAsstIdx] = {
+                ...curr,
+                subtasks: sIdx === -1 ? [...stList, incoming] : stList.map((t, i) => i === sIdx ? { ...t, ...incoming } : t),
+              };
+              patch.turns = activeTurns;
+            }
+            break;
+          }
+
+          case "token": {
+            const delta = String((event as unknown as { delta?: string }).delta || "");
+            if (delta) {
+              const activeTurns = [...(patch.turns || s.turns)];
+              let lastAsstIdx = findLastAssistantIndex(activeTurns);
+              if (lastAsstIdx === -1) {
+                activeTurns.push({
+                  id: `asst-${Date.now()}`,
+                  role: "assistant",
+                  content: delta,
+                  ts: Date.now() / 1000,
+                  status: "running",
+                  thoughts: [],
+                  subtasks: [],
+                  artifacts: [],
+                });
+              } else {
+                activeTurns[lastAsstIdx] = {
+                  ...activeTurns[lastAsstIdx],
+                  content: (activeTurns[lastAsstIdx].content || "") + delta,
+                };
+              }
+              patch.turns = activeTurns;
+              patch.streamingText = (s.streamingText || "") + delta;
+            }
             break;
           }
 
@@ -299,11 +471,69 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             patch.lastError = String(event.message ?? "run failed");
             break;
 
-          case "done":
+          case "done": {
             patch.running = false;
-            patch.finalSummary = String(event.summary ?? "");
+            const summaryText = String(event.summary ?? "");
+            patch.finalSummary = summaryText;
+
+            const activeTurns = [...(patch.turns || s.turns)];
+            let lastAsstIdx = findLastAssistantIndex(activeTurns);
+            if (lastAsstIdx !== -1) {
+              activeTurns[lastAsstIdx] = {
+                ...activeTurns[lastAsstIdx],
+                content: summaryText || activeTurns[lastAsstIdx].content,
+                status: "done",
+                artifacts: s.artifacts,
+              };
+            } else {
+              activeTurns.push({
+                id: `asst-${Date.now()}`,
+                role: "assistant",
+                content: summaryText,
+                status: "done",
+                thoughts: [],
+                subtasks: [],
+                artifacts: s.artifacts,
+                ts: Date.now() / 1000,
+              });
+            }
+            patch.turns = activeTurns;
             void get().refreshSessions();
             break;
+          }
+
+          case "voice_trigger":
+            if (typeof window !== "undefined") {
+              // Dispatch an event that the Cockpit/Microphone component can catch
+              window.dispatchEvent(new CustomEvent("conca_voice_trigger"));
+            }
+            break;
+        }
+
+        // Attach thoughts / activity to active assistant turn
+        if (event.type === "thought" || event.type === "activity") {
+          const activeTurns = [...(patch.turns || s.turns)];
+          let lastAsstIdx = findLastAssistantIndex(activeTurns);
+          if (lastAsstIdx === -1) {
+            activeTurns.push({
+              id: `asst-${Date.now()}`,
+              role: "assistant",
+              content: "",
+              ts: Date.now() / 1000,
+              status: "running",
+              thoughts: [event],
+              subtasks: [],
+              artifacts: [],
+            });
+            patch.turns = activeTurns;
+          } else {
+            const curr = activeTurns[lastAsstIdx];
+            activeTurns[lastAsstIdx] = {
+              ...curr,
+              thoughts: [...(curr.thoughts || []), event],
+            };
+            patch.turns = activeTurns;
+          }
         }
 
         // Keep the raw trace for the thought stream, deduped against replay.
@@ -377,6 +607,33 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
+  async renameSession(sessionId, title) {
+    try {
+      await api.renameSession(sessionId, title);
+      set((s) => ({
+        sessions: s.sessions.map((sess) =>
+          sess.id === sessionId ? { ...sess, title } : sess,
+        ),
+      }));
+    } catch (err) {
+      console.error("Failed to rename session", err);
+    }
+  },
+
+  async deleteSession(sessionId) {
+    try {
+      await api.deleteSession(sessionId);
+      set((s) => ({
+        sessions: s.sessions.filter((sess) => sess.id !== sessionId),
+      }));
+      if (get().sessionId === sessionId) {
+        get().clearRun();
+      }
+    } catch (err) {
+      console.error("Failed to delete session", err);
+    }
+  },
+
   async refreshRotator() {
     try {
       set({ rotator: await api.rotatorStatus() });
@@ -398,6 +655,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set({
       sessionId: null,
       running: false,
+      turns: [],
       events: [],
       subtasks: [],
       artifacts: [],
@@ -406,6 +664,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       conn: "idle",
       rule0Excluded: false,
     });
+  },
+
+  async stopRun() {
+    const s = get();
+    const sid = s.sessionId;
+    detach();
+    set({
+      running: false,
+      conn: "closed",
+      lastError: null,
+    });
+    if (sid) {
+      try {
+        await api.cancelRun(sid);
+      } catch (err) {
+        console.error("Failed to cancel run server-side", err);
+      }
+    }
   },
 
   dismissError() {
@@ -417,6 +693,38 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       localStorage.setItem("conca_user_name", name);
     }
     set({ userName: name });
+  },
+
+  async refreshEmails() {
+    set({ emailsLoading: true });
+    try {
+      const res = await api.emails(50);
+      set({
+        emails: res.messages ?? [],
+        emailsConnected: res.connected,
+        emailsNotice: res.connected ? null : (res.error ?? "Gmail is not connected."),
+        emailsLoading: false,
+      });
+    } catch (err) {
+      set({
+        emailsConnected: false,
+        emailsNotice: err instanceof Error ? err.message : "Could not load emails",
+        emailsLoading: false,
+      });
+    }
+  },
+
+  async refreshCalendar() {
+    set({ calendarLoading: true });
+    try {
+      const res = await api.events({ days: 400 });
+      set({
+        calendarEvents: res.events ?? [],
+        calendarLoading: false,
+      });
+    } catch {
+      set({ calendarLoading: false });
+    }
   },
 }));
 

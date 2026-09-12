@@ -59,13 +59,15 @@ _MATERIAL_NEED = re.compile(
     re.IGNORECASE,
 )
 
-# Small talk. Both patterns are anchored at the start and consume their match, so
-# they are used as *strippers* rather than searches — see `_smalltalk_reply` for
-# why that distinction is the whole safety of this shortcut.
 _GREETING = re.compile(
     r"^\s*(hi+|hey+|hello+|yo|hiya|howdy|greetings|sup|wass?up|what'?s up|"
     r"good\s+(morning|afternoon|evening|day)|morning|afternoon|evening)"
-    r"(\s+(there|all|folks|everyone|team|council))?\b[\s,.!?…—-]*",
+    r"(\s+(there|all|folks|everyone|team|council|concaretti|conca|assistant))?\b[\s,.!?…—-]*",
+    re.IGNORECASE,
+)
+
+_INVOCATION_PREFIX = re.compile(
+    r"^\s*(hey\s+concaretti|concaretti|ok\s+concaretti|okay\s+concaretti)[\s,:;—–-]+\s*",
     re.IGNORECASE,
 )
 
@@ -136,11 +138,12 @@ class Subtask:
 
 
 DECOMPOSE_SYSTEM = """\
-You are the orchestrator of a multi-agent system. You do not perform work \
+You are the orchestrator of the Concaretti Council multi-agent system. You do not perform work \
 yourself; you decompose a request into subtasks for specialist agents.
 
 Return JSON only, in this exact shape:
-{"reasoning": "one or two sentences on your plan",
+{"reasoning": "first-person internal reasoning on how to fulfill the request (e.g., 'I will search for the local weather forecast to provide an accurate update')",
+ "answer": "friendly, direct reply to the user ONLY if no specialist subtasks are needed (e.g. answering greetings, general conversation, or explanations). If subtasks are planned, set this to null",
  "subtasks": [{"id": "st-1", "agent": "research", "task_type": "web_search",
                "description": "what this step achieves", "layer": 0,
                "payload": {"query": "..."}}]}
@@ -155,9 +158,9 @@ create_event use "title", "start", "end". For send_email use "to", "subject", \
 "body". For write_file use "filename", "content". For send_sms use "to", "body".
 - Prefer the smallest plan that fully answers the request. One subtask is often \
 correct; never pad to look thorough.
-- If the request needs no agent at all, return an empty subtasks list and put \
-the answer in `reasoning`.
-- CRITICAL: You must formulate all reasoning and thoughts strictly in the first-person point of view (e.g., "I am checking the calendar", "I will search the web for this", "I found the answer").
+- If the request needs no agent at all, return an empty subtasks list (`"subtasks": []`) and write the natural, direct conversational reply in `"answer"`. NEVER output internal thoughts or meta-commentary like "I am acknowledging the user's greeting" as an answer.
+- Context-Awareness: Consider the user's local time, timezone, culture, and location if provided. Do not make geographically random assumptions or assume standard US locations if the user is elsewhere. For queries like "weather today", include the user's current city/region in the search query.
+- Formulate all internal reasoning strictly in first-person (e.g., "I will search the web for this").
 """
 
 SYNTHESIS_PROMPT = """\
@@ -170,7 +173,7 @@ Specialist agents produced these results:
 Write the final reply to the user. Be direct and specific; lead with the answer. \
 Reference concrete findings rather than describing the process. If a step failed \
 or was refused, say so plainly and briefly. Do not invent information that is not \
-in the results above. No preamble.
+in the results above. No preamble. Maintain full context-awareness of the user's location, current date/time, and regional culture without bias.
 """
 
 HARDSHIP_TEMPLATE = """\
@@ -204,22 +207,16 @@ class Orchestrator:
 
     # ── entry point ──────────────────────────────────────────────────────
 
-    async def run(self, session_id: str, prompt: str, role: str) -> dict[str, Any]:
+    async def run(
+        self,
+        session_id: str,
+        prompt: str,
+        role: str,
+        client_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         started = time.time()
         broker = self.broker
 
-        # Invariant 3, at the only place it can be enforced: above the first
-        # write. Everything below this point either persists the prompt or sends
-        # it somewhere — `append_entry` stores it, `log_audit` hashes it,
-        # `build_prompt_context` feeds it to the embedder, and `_decompose` puts
-        # it in a third-party API call. The chain tools screen their own arguments
-        # too, but they run after all four, which is exactly how a seed phrase in
-        # a `memo` field reached the write-ahead log during verification.
-        #
-        # The refusal deliberately records less than any other failure here: an
-        # audit row with no payload, so there is no hash to attack, and no `reason`
-        # naming what matched beyond its kind. Every other branch below reports
-        # what it refused, because for every other branch the report is safe.
         leak = contains_secret_material(prompt)
         if leak:
             refusal = KEY_REFUSAL.format(what=leak)
@@ -230,8 +227,6 @@ class Orchestrator:
             broker.done(session_id, "refused: secret material")
             return {"ok": False, "error": refusal, "refused": "secret_material", "subtasks": []}
 
-        # Orchestrator kill-switch: if it is disabled, nothing else is even
-        # considered. Mirrors the original conca-check node's first branch.
         orch_ok, orch_reason = check_agent_permission(self.policy, "orchestrator")
         if not orch_ok:
             broker.error(session_id, f"Aborted: {orch_reason}")
@@ -251,18 +246,33 @@ class Orchestrator:
 
         context = self.store.build_prompt_context(session_id, prompt)
 
-        # Small talk answers here, above the decomposer. The stub's routing falls
-        # back to research/web_search for any prompt matching no keyword, so a
-        # greeting left to itself became a DuckDuckGo query for the word "hi".
-        # Guarded on `not sensitive` because "hi, I need help" from someone in
-        # distress belongs on the support path, not on a capability list.
+        if client_context:
+            tz = client_context.get("timezone", "")
+            loc_time = client_context.get("local_time", "")
+            city = client_context.get("city", "")
+            locale = client_context.get("locale", "")
+            env_lines = ["--- [User Context & Regional Environment] ---"]
+            if loc_time:
+                env_lines.append(f"Local Time: {loc_time}")
+            if tz:
+                env_lines.append(f"Timezone: {tz}")
+            if city:
+                env_lines.append(f"User City/Region: {city}")
+            if locale:
+                env_lines.append(f"Locale: {locale}")
+            env_lines.append(
+                "Context Directive: Prioritize the user's actual location and current date/time for local weather, news, and queries. Avoid default US/UK locations if the user is elsewhere. Avoid bias."
+            )
+            env_lines.append("--- [End Context] ---")
+            context = "\n".join(env_lines) + "\n\n" + context
+
+        # Small talk answers here, above the decomposer
         if not sensitive:
             chat = self._smalltalk_reply(prompt, role)
             if chat is not None:
                 broker.thought(
                     session_id,
-                    "That reads as a greeting rather than a task — answering "
-                    "directly, no agents dispatched.",
+                    "Greeting or check-in detected — answering directly, no specialist agents required.",
                 )
                 self.store.append_entry(session_id, "assistant", chat, agent="orchestrator")
                 self.store.set_summary(session_id, chat[:500])
@@ -274,6 +284,7 @@ class Orchestrator:
                     "Greeting answered without dispatch",
                     prompt,
                 )
+                await self._stream_tokens(session_id, chat)
                 broker.done(session_id, chat)
                 return {
                     "ok": True,
@@ -284,19 +295,32 @@ class Orchestrator:
 
         # ── plan ──
         broker.thought(session_id, "Decomposing the request into subtasks.")
-        hardship = self._is_hardship(prompt)
+        # Strip wake-word / invocation prefix so the planner receives a clean task
+        clean_prompt = _INVOCATION_PREFIX.sub("", prompt).strip() or prompt
+        hardship = self._is_hardship(clean_prompt)
         if hardship:
             broker.activity(session_id, "Hardship routing engaged (.conca policy)")
             broker.publish(session_id, "activity", {"message": HARDSHIP_TEMPLATE.strip(), "layer0": True})
-            subtasks, reasoning, model_used = self._hardship_plan(prompt), "Hardship policy ordering from .conca", "policy"
+            subtasks, reasoning, direct_answer, model_used = self._hardship_plan(clean_prompt), "Hardship policy ordering from .conca", "", "policy"
         else:
-            subtasks, reasoning, model_used = await self._decompose(session_id, prompt, context, role)
+            subtasks, reasoning, direct_answer, model_used = await self._decompose(session_id, clean_prompt, context, role)
 
         broker.thought(session_id, reasoning, model=model_used)
 
         if not subtasks:
-            answer = reasoning or "Nothing to do for that request."
+            if direct_answer:
+                answer = direct_answer
+            elif reasoning and not reasoning.lower().startswith(("i am acknowledging", "i will acknowledge")):
+                answer = reasoning
+            else:
+                synth = await self.rotator.complete(
+                    f"A user said: \"{clean_prompt}\"\nContext: {context[:500]}\nProvide a warm, helpful, direct response to the user. Do not state internal thoughts, meta-reasoning, or procedural commentary like 'I am acknowledging...'. Answer the user directly.",
+                    max_attempts=2,
+                )
+                answer = synth.text.strip() if not synth.stubbed else "Hello! The Concaretti Council is standing by to assist you. What would you like to work on today?"
+
             self.store.append_entry(session_id, "assistant", answer, agent="orchestrator")
+            await self._stream_tokens(session_id, answer)
             broker.done(session_id, answer)
             return {"ok": True, "answer": answer, "subtasks": [], "elapsed": time.time() - started}
 
@@ -405,19 +429,38 @@ class Orchestrator:
         written into a template, so it states what this role can actually reach —
         including an agent switched off in `.conca` between two turns.
         """
-        rest = _GREETING.sub("", prompt, count=1)
-        greeted = rest != prompt
-        asked_for_help = bool(_HELP_ONLY.match(rest))
+        cur = prompt.strip()
+        greeted = False
+        while True:
+            m = _GREETING.match(cur)
+            if m:
+                cur = cur[m.end():].strip()
+                greeted = True
+                continue
+            m_inv = _INVOCATION_PREFIX.match(cur)
+            if m_inv:
+                cur = cur[m_inv.end():].strip()
+                greeted = True
+                continue
+            break
+
+        asked_for_help = bool(_HELP_ONLY.match(cur))
         if asked_for_help:
-            rest = ""
+            cur = ""
+
         if not (greeted or asked_for_help):
             return None
-        if rest.strip(_FILLER):
+        if cur.strip(_FILLER):
             return None
 
-        # Only agents that are granted *and* have a tool registered. Advertising
-        # one the policy allows but no tool serves would promise a step that
-        # reports "unsupported" the moment it is dispatched.
+        # Friendly, direct conversational reply for greetings without overwhelming boilerplate
+        if greeted and not asked_for_help:
+            return (
+                "Hello! The Concaretti Council is online and standing by. "
+                "All zero-trust perimeter systems are active and running. What would you like to work on today?"
+            )
+
+        # Only agents that are granted *and* have a tool registered.
         granted = [
             a for a in self.policy.agents_for_role(role) if a in AGENT_CAPABILITIES
         ]
@@ -543,6 +586,7 @@ class Orchestrator:
             parsed = plan
 
         reasoning = str(parsed.get("reasoning", "")).strip()
+        direct_answer = str(parsed.get("answer", "")).strip() if parsed.get("answer") else ""
         raw_subtasks = parsed.get("subtasks")
         if not isinstance(raw_subtasks, list):
             raw_subtasks = []
@@ -570,7 +614,7 @@ class Orchestrator:
                 )
             )
 
-        return subtasks, reasoning, result.model_id
+        return subtasks, reasoning, direct_answer, result.model_id
 
     # ── the .conca screen ────────────────────────────────────────────────
 
@@ -830,12 +874,26 @@ class Orchestrator:
                 for s in problems
             ]
             body = "\n\n".join(chunks) or "No results."
-            return f"{body}\n\n(Composed locally — no model provider is configured.)"
+            ans = f"{body}\n\n(Composed locally — no model provider is configured.)"
+        else:
+            self.broker.thought(
+                session_id,
+                f"Synthesised final answer via {result.model_id}",
+                model=result.model_id,
+                tier=result.tier,
+            )
+            ans = result.text.strip()
+        await self._stream_tokens(session_id, ans)
+        return ans
 
-        self.broker.thought(
-            session_id,
-            f"Synthesised final answer via {result.model_id}",
-            model=result.model_id,
-            tier=result.tier,
-        )
-        return result.text.strip()
+    async def _stream_tokens(self, session_id: str, text: str) -> None:
+        """Stream answer chunks over SSE so the user experiences instantaneous real-time generation."""
+        if not text:
+            return
+        words = text.split(" ")
+        for i in range(0, len(words), 3):
+            chunk = " ".join(words[i : i + 3])
+            if i > 0:
+                chunk = " " + chunk
+            self.broker.token(session_id, chunk)
+            await asyncio.sleep(0.012)

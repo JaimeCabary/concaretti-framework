@@ -16,7 +16,7 @@ import { Empty, Panel, relTime } from "./ui";
 const sizeHint = (mime: string | undefined) =>
   mime?.split("/")[1]?.toUpperCase() ?? "FILE";
 
-export function ArtifactPanel({ compact = false }: { compact?: boolean }) {
+export function ArtifactPanel({ compact: _compact = false }: { compact?: boolean } = {}) {
   const live = useAgentStore((s) => s.artifacts);
   const sessionId = useAgentStore((s) => s.sessionId);
   const running = useAgentStore((s) => s.running);
@@ -44,7 +44,7 @@ export function ArtifactPanel({ compact = false }: { compact?: boolean }) {
   for (const a of [...fetched, ...live]) byId.set(a.id, a);
   const artifacts = [...byId.values()].sort((a, b) => b.ts - a.ts);
 
-  if (compact && artifacts.length === 0) return null;
+  if (artifacts.length === 0) return null;
 
   return (
     <Panel

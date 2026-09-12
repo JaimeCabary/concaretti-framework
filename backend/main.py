@@ -13,8 +13,10 @@ Run it:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+import re
 import secrets
 import sys
 import threading
@@ -42,7 +44,11 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-load_dotenv()
+_backend_env = Path(__file__).resolve().parent / ".env"
+if _backend_env.exists():
+    load_dotenv(_backend_env)
+else:
+    load_dotenv()
 
 from agents import Orchestrator  # noqa: E402
 from auth import (  # noqa: E402
@@ -262,7 +268,8 @@ async def _scheduler_loop() -> None:
                     continue
                 last_fired[key] = stamp
 
-                session_id = f"cron-{job.id}"
+                job_id = getattr(job, "id", None) or f"{abs(hash(key)) % 100000}"
+                session_id = f"cron-{job_id}"
                 store().ensure_session(
                     session_id, role="staff", prompt=job.prompt, title=f"scheduled — {job.cron}"
                 )
@@ -374,7 +381,10 @@ async def lifespan(app: FastAPI):
 
     # Autonomous Sentinel watcher loop: continually monitors calendar, market, and perimeter
     from watcher import sentinel_loop
+    from listener import start_wake_word_listener, _listener
+    
     state["sentinel"] = asyncio.create_task(sentinel_loop(state))
+    start_wake_word_listener()
     print("[concaretti] autonomous sentinel loop active — continuous monitoring & listening engaged")
 
     if os.getenv("CONCA_DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
@@ -407,6 +417,9 @@ async def lifespan(app: FastAPI):
         )
 
     yield
+
+    if _listener is not None:
+        _listener.stop()
 
     sentinel = state.pop("sentinel", None)
     if sentinel is not None:
@@ -512,11 +525,15 @@ async def conca_status(role: Role = Depends(current_role)) -> dict:
 @app.post("/api/conca/reload")
 async def conca_reload() -> dict:
     """Re-read `.conca` from disk so policy edits apply without a restart."""
+    import importlib
+    import security
+    importlib.reload(security)
     try:
-        p = load_policy(DEFAULT_POLICY_PATH)
+        p = security.load_policy(DEFAULT_POLICY_PATH)
     except Exception as exc:
         raise HTTPException(400, f"policy failed to load: {exc}") from exc
     state["policy"] = p
+    state["normalizer"] = security.ShellNormalizer()
     orch().reload_policy(p)
     return {"ok": True, "version": p.version, "agents_enabled": p.enabled_agents()}
 
@@ -534,8 +551,9 @@ async def conca_simulate(req: SimulateRequest) -> dict:
     show the nine normalisation stages collapsing it, and show the verdict. No
     subprocess is ever spawned here.
     """
-    normalizer: ShellNormalizer = state["normalizer"]
-    allowed, reason = is_safe(policy(), req.command)
+    import security
+    normalizer = security.ShellNormalizer()
+    allowed, reason = security.is_safe(policy(), req.command)
     destructive, verb = normalizer.is_destructive(req.command)
     return {
         "input": req.command,
@@ -639,9 +657,63 @@ async def update_profile(payload: ProfilePayload) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+UPLOAD_DIR = Path(__file__).parent / "data" / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.post("/api/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    role: Role = Depends(current_role),
+) -> dict:
+    """Accept an uploaded file, store it safely, and extract preview/text content."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Uploaded file was empty")
+    if len(data) > 25 * 1024 * 1024:
+        raise HTTPException(413, "File exceeds 25 MB limit")
+
+    file_id = f"file-{secrets.token_hex(6)}"
+    raw_name = file.filename or "upload.txt"
+    safe_name = re.sub(r"[^\w.\-_]", "_", raw_name)
+    saved_path = UPLOAD_DIR / f"{file_id}_{safe_name}"
+    saved_path.write_bytes(data)
+
+    content: str | None = None
+    preview: str | None = None
+    mime = file.content_type or "application/octet-stream"
+
+    # Try reading as utf-8 text (code, markdown, json, yaml, csv, logs, etc.)
+    try:
+        content = data.decode("utf-8")
+        if len(content) > 200_000:
+            content = content[:200_000] + "\n... [truncated at 200 KB]"
+    except Exception:
+        pass
+
+    # Provide data URL preview for images
+    if mime.startswith("image/") or raw_name.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")):
+        b64 = base64.b64encode(data).decode("ascii")
+        preview = f"data:{mime};base64,{b64}"
+
+    return {
+        "ok": True,
+        "id": file_id,
+        "name": raw_name,
+        "size": len(data),
+        "type": mime,
+        "path": str(saved_path),
+        "content": content,
+        "preview": preview,
+    }
+
+
 class RunRequest(BaseModel):
     prompt: str = Field(min_length=1)
     session_id: str | None = None
+    attachments: list[dict[str, Any]] | None = None
+    client_context: dict[str, Any] | None = None
+    is_temporary: bool = False
 
 
 @app.post("/api/agents/run")
@@ -654,11 +726,32 @@ async def run_agents(req: RunRequest, role: Role = Depends(current_role)) -> dic
     human. Progress arrives over `/sse/{session_id}`, which replays from the
     start, so a client that subscribes after this returns misses nothing.
     """
-    session_id = req.session_id or store().create_session(role=role, prompt=req.prompt)
+    full_prompt = req.prompt
+    if req.attachments:
+        attachment_sections = []
+        for att in req.attachments:
+            name = att.get("name", "attached_file")
+            content = att.get("content")
+            if content:
+                attachment_sections.append(
+                    f"--- [Attached File: {name}] ---\n{content}\n--- [End of {name}] ---"
+                )
+            elif att.get("path"):
+                attachment_sections.append(
+                    f"--- [Attached File: {name} (Stored on host at: {att.get('path')})] ---"
+                )
+        if attachment_sections:
+            full_prompt = "\n\n".join(attachment_sections) + f"\n\n{req.prompt}"
+
+    session_id = req.session_id or store().create_session(
+        role=role, prompt=req.prompt, is_temporary=req.is_temporary
+    )
 
     async def _run() -> None:
         try:
-            await orch().run(session_id, req.prompt, role)
+            await orch().run(
+                session_id, full_prompt, role, client_context=req.client_context
+            )
         except Exception as exc:
             broker().error(session_id, f"{type(exc).__name__}: {exc}")
             broker().done(session_id, "run failed")
@@ -666,7 +759,8 @@ async def run_agents(req: RunRequest, role: Role = Depends(current_role)) -> dic
     task = asyncio.create_task(_run())
     # Hold a reference so the task is not garbage-collected mid-flight.
     state.setdefault("tasks", set()).add(task)
-    task.add_done_callback(lambda t: state["tasks"].discard(t))
+    state.setdefault("session_tasks", {})[session_id] = task
+    task.add_done_callback(lambda t: (state["tasks"].discard(t), state.get("session_tasks", {}).pop(session_id, None)))
 
     return {
         "ok": True,
@@ -674,6 +768,20 @@ async def run_agents(req: RunRequest, role: Role = Depends(current_role)) -> dic
         "stream": f"/sse/{session_id}",
         "rule0_excluded": is_sensitive(req.prompt),
     }
+
+
+@app.post("/api/agents/cancel/{session_id}")
+async def cancel_agent_run(session_id: str, role: Role = Depends(current_role)) -> dict:
+    """Emergency stop endpoint: cancels in-flight agent run immediately."""
+    session_tasks = state.setdefault("session_tasks", {})
+    task = session_tasks.get(session_id)
+    cancelled = False
+    if task and not task.done():
+        task.cancel()
+        cancelled = True
+    broker().activity(session_id, "Emergency stop engaged: Operator halted agent execution.")
+    broker().done(session_id, "halted by operator")
+    return {"ok": True, "session_id": session_id, "cancelled": cancelled}
 
 
 @app.get("/api/sessions")
@@ -698,6 +806,22 @@ async def session_detail(session_id: str) -> dict:
         ],
         "artifacts": store().list_artifacts(session_id),
     }
+
+
+class RenameSessionRequest(BaseModel):
+    title: str = Field(min_length=1)
+
+
+@app.patch("/api/sessions/{session_id}")
+async def rename_session(session_id: str, req: RenameSessionRequest) -> dict:
+    ok = store().rename_session(session_id, req.title)
+    return {"ok": ok, "session_id": session_id, "title": req.title}
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict:
+    ok = store().delete_session(session_id)
+    return {"ok": ok, "session_id": session_id}
 
 
 @app.get("/sse/{session_id}")
@@ -876,6 +1000,31 @@ async def email_list(max_results: int = 12, role: Role = Depends(current_role)) 
             "connected": False,
             "messages": [],
             "error": f"Failed fetching emails: {err}",
+        }
+
+
+@app.get("/api/email/{msg_id}")
+async def email_get(msg_id: str, role: Role = Depends(current_role)) -> dict:
+    from tools import ExecContext, get_email
+
+    if "email" not in policy().agents_for_role(role):
+        raise HTTPException(403, f'role "{role}" has no email access under .conca')
+
+    ctx = ExecContext(
+        session_id=f"inbox-read-{msg_id}",
+        role=role,
+        policy=policy(),
+        store=store(),
+        broker=broker(),
+    )
+    try:
+        return await get_email({"id": msg_id}, ctx)
+    except Exception as err:
+        return {
+            "ok": False,
+            "connected": False,
+            "message": None,
+            "error": f"Failed fetching email: {err}",
         }
 
 

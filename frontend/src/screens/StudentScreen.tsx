@@ -21,11 +21,11 @@ import { ConnectAccounts } from "../components/ConnectAccounts";
 import { DocsPanel } from "../components/DocsPanel";
 import { RecallPanel } from "../components/RecallPanel";
 import { StudentTimetable } from "../components/StudentTimetable";
-import { ThoughtStream } from "../components/ThoughtStream";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { EmailHub } from "../components/EmailHub";
 import { WorkDiary } from "../components/WorkDiary";
-import { Result, relTime } from "../components/ui";
+import { ConversationFeed } from "../components/ConversationFeed";
+import { relTime } from "../components/ui";
 import { Sidebar, type RailItem } from "../components/Sidebar";
 import { RailProfile } from "../components/RailProfile";
 import { RailSessions } from "../components/RailSessions";
@@ -223,8 +223,7 @@ function StudentActive({
 
         {/* Scrollable Real-Time Content Feed */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-          <Result />
-          <ThoughtStream role="student" />
+          <ConversationFeed role="student" />
           <ArtifactPanel />
         </div>
 

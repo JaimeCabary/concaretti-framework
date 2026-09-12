@@ -31,6 +31,8 @@ import html
 import json
 import os
 import re
+import sys
+import subprocess
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -427,6 +429,73 @@ async def list_emails(payload: dict, ctx: ExecContext) -> dict:
                 connected=False,
             )
 
+    return await asyncio.to_thread(_work)
+
+
+async def get_email(payload: dict, ctx: ExecContext) -> dict:
+    """Fetch the full payload of a single email and extract its body."""
+    msg_id = payload.get("id")
+    if not msg_id:
+        return _fail("no email id provided")
+
+    def _work() -> dict:
+        service = _google_service("gmail", "v1")
+        if service is None:
+            return _fail("Gmail not connected")
+        try:
+            msg = (
+                service.users()
+                .messages()
+                .get(userId="me", id=msg_id, format="full")
+                .execute()
+            )
+            
+            # Helper to extract body from MIME parts
+            import base64
+            def extract_body(payload_part):
+                if payload_part.get("mimeType") == "text/plain":
+                    data = payload_part.get("body", {}).get("data", "")
+                    if data:
+                        return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                elif payload_part.get("mimeType") == "text/html":
+                    data = payload_part.get("body", {}).get("data", "")
+                    if data:
+                        return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                
+                parts = payload_part.get("parts", [])
+                text_body = ""
+                html_body = ""
+                for part in parts:
+                    body = extract_body(part)
+                    if part.get("mimeType") == "text/plain" and body:
+                        text_body = body
+                    elif part.get("mimeType") == "text/html" and body:
+                        html_body = body
+                return html_body if html_body else text_body
+
+            body_content = extract_body(msg.get("payload", {}))
+            
+            headers = {
+                h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])
+            }
+            
+            # If the user opens an unread email, we can optionally mark it as read here.
+            # But the user specifically wanted local states to update, so we'll just return it.
+            
+            return _ok(
+                "email fetched", 
+                message={
+                    "id": msg["id"],
+                    "from": headers.get("From", ""),
+                    "subject": headers.get("Subject", "(no subject)"),
+                    "date": headers.get("Date", ""),
+                    "body": body_content,
+                    "unread": "UNREAD" in msg.get("labelIds", []),
+                }
+            )
+        except Exception as err:
+            return _fail(f"Failed to fetch email: {err}")
+            
     return await asyncio.to_thread(_work)
 
 
@@ -1174,36 +1243,405 @@ async def media_state(payload: dict, ctx: ExecContext) -> dict:
     return _ok(f"Active media-related processes: {', '.join(set(found))}")
 
 
+_CLICK_WAV = Path(__file__).resolve().parent / "data" / "mechanical_click.wav"
+
+
+def _play_acoustic_clack():
+    """Play crisp asynchronous mechanical switch audio click on Windows on each key hit."""
+    if sys.platform == "win32":
+        try:
+            import winsound
+            if _CLICK_WAV.exists():
+                winsound.PlaySound(str(_CLICK_WAV), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                return
+            winsound.Beep(2100, 20)
+        except Exception:
+            pass
+
+
+def show_click_indicator(x: int, y: int, button: str = "left") -> None:
+    """Spawn high-visibility animated touch ripple (fingerprint pulse) on the screen."""
+    if sys.platform == "win32":
+        try:
+            script = Path(__file__).resolve().parent / "click_visualizer.py"
+            if script.exists():
+                flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+                subprocess.Popen(
+                    [sys.executable, str(script), str(int(x)), str(int(y)), str(button)],
+                    creationflags=flags,
+                )
+        except Exception:
+            pass
+
+
 async def mouse_move(payload: dict, ctx: ExecContext) -> dict:
-    x = int(payload.get("x", 0))
-    y = int(payload.get("y", 0))
-    duration = float(payload.get("duration", 0.5))
-    pyautogui.moveTo(x, y, duration)
-    return _ok(f"Moved mouse to ({x}, {y})")
+    pyautogui.FAILSAFE = False
+    x = max(5, int(payload.get("x", 100)))
+    y = max(5, int(payload.get("y", 100)))
+    duration = max(0.1, float(payload.get("duration", 0.6)))
+    status = str(payload.get("status", "Concaretti: Navigating"))
+
+    # Signal visible companion cursor
+    try:
+        from cursor_companion import get_cursor_accompanier
+        get_cursor_accompanier().move_to(x, y, duration=duration, status=status)
+    except Exception:
+        pass
+    
+    # Smooth human-like Bezier easing across the Windows desktop
+    def _work():
+        try:
+            pyautogui.moveTo(x, y, duration=duration, tween=pyautogui.easeInOutQuad)
+        except Exception:
+            pass
+    await asyncio.to_thread(_work)
+    
+    ctx.broker.activity(ctx.session_id, f"OS Agent glided mouse cursor to ({x}, {y})")
+    return _ok(f"Moved mouse cursor to ({x}, {y})")
 
 
 async def mouse_click(payload: dict, ctx: ExecContext) -> dict:
-    button = str(payload.get("button", "left"))
-    pyautogui.click(button=button)
-    return _ok(f"Clicked {button} mouse button")
+    pyautogui.FAILSAFE = False
+    x = payload.get("x")
+    y = payload.get("y")
+    button = str(payload.get("button", "left")).lower()
+    clicks = int(payload.get("clicks", 1))
+
+    target_x, target_y = 0, 0
+    try:
+        if x is not None and y is not None:
+            target_x, target_y = max(5, int(x)), max(5, int(y))
+        else:
+            cur = pyautogui.position()
+            target_x, target_y = int(cur.x), int(cur.y)
+    except Exception:
+        pass
+
+    # Visual click ripple from cursor accompanier & GDI
+    try:
+        from cursor_companion import get_cursor_accompanier
+        get_cursor_accompanier().click(target_x, target_y, button=button)
+    except Exception:
+        pass
+    show_click_indicator(target_x, target_y, button=button)
+    
+    def _work():
+        try:
+            if x is not None and y is not None:
+                pyautogui.click(x=target_x, y=target_y, clicks=clicks, button=button)
+            else:
+                pyautogui.click(clicks=clicks, button=button)
+        except Exception:
+            pass
+    await asyncio.to_thread(_work)
+    
+    ctx.broker.activity(ctx.session_id, f"OS Agent clicked {button} button ({clicks}x) at ({target_x}, {target_y})")
+    return _ok(f"Clicked {button} mouse button ({clicks} clicks)")
 
 
 async def mouse_drag(payload: dict, ctx: ExecContext) -> dict:
-    x = int(payload.get("x", 0))
-    y = int(payload.get("y", 0))
-    duration = float(payload.get("duration", 0.5))
-    pyautogui.dragTo(x, y, duration)
+    pyautogui.FAILSAFE = False
+    x = max(5, int(payload.get("x", 100)))
+    y = max(5, int(payload.get("y", 100)))
+    duration = max(0.1, float(payload.get("duration", 0.6)))
+    
+    def _work():
+        try:
+            pyautogui.dragTo(x, y, duration=duration, tween=pyautogui.easeInOutQuad)
+        except Exception:
+            pass
+    await asyncio.to_thread(_work)
+    
+    ctx.broker.activity(ctx.session_id, f"OS Agent dragged mouse to ({x}, {y})")
     return _ok(f"Dragged mouse to ({x}, {y})")
 
 
 async def keyboard_type(payload: dict, ctx: ExecContext) -> dict:
+    pyautogui.FAILSAFE = False
     text = str(payload.get("text", ""))
+    sound = payload.get("sound", True)
+    wpm = int(payload.get("wpm", 50))
+    delay = 60.0 / (wpm * 5.0) if wpm > 0 else 0.08
+    delay = max(0.065, min(0.14, delay))
+
+    try:
+        from cursor_companion import get_cursor_accompanier
+        acc = get_cursor_accompanier()
+        acc.type_at(acc._x, acc._y, status="Typing...")
+    except Exception:
+        pass
+
     if text:
-        pyautogui.write(text, interval=0.05)
+        def _type_work():
+            import random
+            for char in text:
+                if sound:
+                    _play_acoustic_clack()
+                try:
+                    pyautogui.write(char)
+                except Exception:
+                    pass
+                time.sleep(delay + random.uniform(-0.008, 0.012))
+        await asyncio.to_thread(_type_work)
+
     keys = payload.get("keys", [])
+    if isinstance(keys, str):
+        keys = [keys]
     for k in keys:
-        pyautogui.press(k)
-    return _ok(f"Typed text and pressed keys: {keys}")
+        if sound:
+            _play_acoustic_clack()
+        try:
+            pyautogui.press(k)
+        except Exception:
+            pass
+        time.sleep(delay)
+            
+    ctx.broker.activity(ctx.session_id, f"OS Agent typed {len(text)} characters into active window")
+    return _ok(f"Typed {len(text)} characters into active window.")
+
+async def mouse_scroll(payload: dict, ctx: ExecContext) -> dict:
+    pyautogui.FAILSAFE = False
+    amount = int(payload.get("amount", -500))  # negative is usually scroll down
+    
+    try:
+        from cursor_companion import get_cursor_accompanier
+        acc = get_cursor_accompanier()
+        acc.scroll_at(acc._x, acc._y, amount=amount, status=f"Scrolling {amount}")
+    except Exception:
+        pass
+        
+    def _work():
+        try:
+            pyautogui.scroll(amount)
+        except Exception:
+            pass
+    await asyncio.to_thread(_work)
+    
+    ctx.broker.activity(ctx.session_id, f"OS Agent scrolled {amount}")
+    return _ok(f"Scrolled window by {amount}.")
+
+
+async def vision_act(payload: dict, ctx: ExecContext) -> dict:
+    """Takes a screenshot, passes it to the Vision LLM to locate an element, and clicks/types on it."""
+    instruction = payload.get("instruction")
+    if not instruction:
+        return _fail("`instruction` required (e.g. 'click the green submit button')")
+        
+    try:
+        import mss
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]  # primary monitor
+            sct_img = sct.grab(monitor)
+            import mss.tools
+            raw_bytes = mss.tools.to_png(sct_img.rgb, sct_img.size)
+    except Exception as e:
+        return _fail(f"Failed to capture screen: {e}")
+        
+    prompt = f"I need to {instruction}. Based on this screenshot, give me the exact X and Y coordinates to interact with. Output ONLY valid JSON: {{\"x\": int, \"y\": int, \"action\": \"click\" or \"type\", \"text\": \"optional text to type\"}}"
+    
+    ctx.broker.thought(ctx.session_id, f"Capturing screen to: {instruction}")
+    
+    res = await ctx.rotator.complete_vision(prompt, raw_bytes)
+    
+    try:
+        import json
+        data = json.loads(res.text.strip().strip("`").removeprefix("json\n"))
+        x, y = data.get("x"), data.get("y")
+        action = data.get("action", "click")
+        
+        if x and y:
+            await mouse_move({"x": x, "y": y, "duration": 0.8}, ctx)
+            await asyncio.sleep(0.3)
+            if action == "click":
+                await mouse_click({"x": x, "y": y, "button": "left"}, ctx)
+            elif action == "type":
+                await mouse_click({"x": x, "y": y, "button": "left"}, ctx)
+                await asyncio.sleep(0.2)
+                await keyboard_type({"text": data.get("text", "")}, ctx)
+            return _ok(f"Successfully performed '{action}' at ({x}, {y})")
+        else:
+            return _fail("Vision LLM failed to return valid coordinates.")
+    except Exception as e:
+        return _fail(f"Vision LLM failed to parse coordinates: {res.text}. Error: {e}")
+
+async def open_onscreen_keyboard(payload: dict, ctx: ExecContext) -> dict:
+    if sys.platform == "win32":
+        try:
+            subprocess.Popen(["cmd.exe", "/c", "start", "osk.exe"], shell=True)
+            ctx.broker.activity(ctx.session_id, "Launched Windows On-Screen Keyboard (osk.exe)")
+            return _ok("Launched Windows On-Screen Keyboard (osk.exe). You can now watch keys highlight in real time.")
+        except Exception as e:
+            return _fail(f"Could not open on-screen keyboard: {e}")
+    return _fail("On-screen keyboard only supported on Windows.")
+
+
+async def keyboard_hotkey(payload: dict, ctx: ExecContext) -> dict:
+    keys = payload.get("keys", [])
+    if isinstance(keys, str):
+        keys = [k.strip() for k in keys.split("+")]
+    if not keys:
+        return _fail("`keys` list required (e.g. ['win', 'r'] or 'ctrl+c')")
+    
+    def _work():
+        pyautogui.hotkey(*keys)
+    await asyncio.to_thread(_work)
+    
+    ctx.broker.activity(ctx.session_id, f"OS Agent pressed hotkey: {' + '.join(keys)}")
+    return _ok(f"Pressed hotkey combination: {' + '.join(keys)}")
+
+
+async def launch_app(payload: dict, ctx: ExecContext) -> dict:
+    app = str(payload.get("app") or payload.get("name") or "").strip()
+    if not app:
+        return _fail("`app` name required")
+    app_map = {
+        "notepad": "notepad.exe",
+        "calculator": "calc.exe",
+        "calc": "calc.exe",
+        "explorer": "explorer.exe",
+        "terminal": "wt.exe",
+        "cmd": "cmd.exe",
+        "powershell": "powershell.exe",
+        "keyboard": "osk.exe",
+        "osk": "osk.exe",
+    }
+    cmd = app_map.get(app.lower(), app)
+    try:
+        subprocess.Popen(["cmd.exe", "/c", "start", cmd], shell=True)
+        ctx.broker.activity(ctx.session_id, f"Launched desktop application: {app}")
+        return _ok(f"Launched {app} on desktop")
+    except Exception as e:
+        return _fail(f"Could not launch {app}: {e}")
+
+
+async def speak(payload: dict, ctx: ExecContext) -> dict:
+    """Audibly speak text using ultra-realistic Microsoft Edge Neural TTS."""
+    text = str(payload.get("text") or payload.get("message") or "").strip()
+    if not text:
+        return _fail("`text` parameter required")
+    
+    try:
+        import edge_tts
+        import pygame
+        import tempfile
+        import os
+        
+        # Use a high-quality neural voice
+        voice = "en-US-ChristopherNeural"
+        communicate = edge_tts.Communicate(text, voice)
+        
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fp:
+            temp_path = fp.name
+            
+        await communicate.save(temp_path)
+        
+        def _play():
+            try:
+                pygame.mixer.init()
+                pygame.mixer.music.load(temp_path)
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    time.sleep(0.1)
+                pygame.mixer.quit()
+            except Exception:
+                pass
+            finally:
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+                    
+        await asyncio.to_thread(_play)
+        ctx.broker.activity(ctx.session_id, f"OS Agent spoke (Neural TTS): \"{text}\"")
+        return _ok(f"Spoke aloud: \"{text}\"")
+    except Exception as e:
+        return _fail(f"Failed to speak via neural TTS: {e}")
+
+
+async def find_window(payload: dict, ctx: ExecContext) -> dict:
+    """Locate an application window by title or class and return its coordinates."""
+    query = str(payload.get("query") or payload.get("title") or payload.get("app") or "").strip().lower()
+    if not query:
+        return _fail("`query` or `title` required")
+    if sys.platform != "win32":
+        return _fail("Window inspection only supported on Windows.")
+
+    try:
+        import win32gui
+        import ctypes
+        u32 = ctypes.windll.user32
+        hdesk = u32.OpenInputDesktop(0, False, 0x01FF)
+        if hdesk:
+            u32.SetThreadDesktop(hdesk)
+
+        matches = []
+        def _enum(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                cls = win32gui.GetClassName(hwnd)
+                if query in title.lower() or query in cls.lower():
+                    rect = win32gui.GetWindowRect(hwnd)
+                    matches.append({
+                        "hwnd": hwnd,
+                        "title": title,
+                        "class": cls,
+                        "rect": {"left": rect[0], "top": rect[1], "right": rect[2], "bottom": rect[3]},
+                        "center": {"x": (rect[0] + rect[2]) // 2, "y": (rect[1] + rect[3]) // 2},
+                    })
+        win32gui.EnumWindows(_enum, None)
+        if not matches:
+            return _fail(f"No visible window matching '{query}' found.")
+        target = matches[0]
+        # Optionally bring to front
+        if payload.get("focus", True):
+            win32gui.ShowWindow(target["hwnd"], 9) # SW_RESTORE
+            win32gui.SetForegroundWindow(target["hwnd"])
+        ctx.broker.activity(ctx.session_id, f"Located window '{target['title']}' at center ({target['center']['x']}, {target['center']['y']})")
+        return _ok(f"Found window: {target['title']}", window=target)
+    except Exception as e:
+        return _fail(f"Could not find window: {e}")
+
+
+def _get_windows_idle_ms() -> int:
+    """Return milliseconds since last physical user keyboard or mouse input."""
+    if sys.platform != "win32":
+        return 0
+    try:
+        import ctypes
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+        if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+            millis = ctypes.windll.kernel32.GetTickCount()
+            return max(0, millis - lii.dwTime)
+    except Exception:
+        pass
+    return 0
+
+
+async def detect_os_input_state(payload: dict, ctx: ExecContext) -> dict:
+    """Detect OS-level physical user typing, mouse movement, and idle status."""
+    idle_ms = _get_windows_idle_ms()
+    idle_s = round(idle_ms / 1000.0, 2)
+    user_active = idle_s < 4.0
+
+    pos = {"x": 0, "y": 0}
+    try:
+        cur = pyautogui.position()
+        pos = {"x": int(cur.x), "y": int(cur.y)}
+    except Exception:
+        pass
+
+    state_desc = "Operator active at keyboard/mouse" if user_active else f"Operator hands-off (idle {idle_s}s)"
+    ctx.broker.activity(ctx.session_id, f"OS Input State: {state_desc}, cursor at ({pos['x']}, {pos['y']})")
+    
+    return _ok(
+        f"OS input: {state_desc}",
+        idle_seconds=idle_s,
+        user_active=user_active,
+        cursor_pos=pos,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4375,6 +4813,7 @@ TOOL_REGISTRY: dict[tuple[str, str], Any] = {
     ("research", "scrape_url"): scrape_url,
     ("research", "arxiv_search"): arxiv_search,
     ("email", "list_emails"): list_emails,
+    ("email", "get_email"): get_email,
     ("email", "draft_reply"): draft_reply,
     ("email", "send_email"): send_email,
     ("calendar", "create_event"): create_event,
@@ -4400,6 +4839,12 @@ TOOL_REGISTRY: dict[tuple[str, str], Any] = {
     ("desktop", "mouse_click"): mouse_click,
     ("desktop", "mouse_drag"): mouse_drag,
     ("desktop", "keyboard_type"): keyboard_type,
+    ("desktop", "mouse_scroll"): mouse_scroll,
+    ("desktop", "vision_act"): vision_act,
+    ("desktop", "open_onscreen_keyboard"): open_onscreen_keyboard,
+    ("desktop", "keyboard_hotkey"): keyboard_hotkey,
+    ("desktop", "launch_app"): launch_app,
+    ("desktop", "detect_input_state"): detect_os_input_state,
     ("file", "project_create"): project_create,
     ("scheduler", "set_reminder"): set_reminder,
     ("scheduler", "list_scheduled"): list_scheduled,
@@ -4554,6 +4999,21 @@ TASK_ALIASES: dict[str, dict[str, str]] = {
         "describe_screen": "screen_capture",
         "look": "screen_capture",
         "see": "screen_capture",
+        "keyboard": "open_onscreen_keyboard",
+        "onscreen_keyboard": "open_onscreen_keyboard",
+        "osk": "open_onscreen_keyboard",
+        "type": "keyboard_type",
+        "typing": "keyboard_type",
+        "write": "keyboard_type",
+        "keystroke": "keyboard_type",
+        "move": "mouse_move",
+        "cursor": "mouse_move",
+        "click": "mouse_click",
+        "drag": "mouse_drag",
+        "hotkey": "keyboard_hotkey",
+        "shortcut": "keyboard_hotkey",
+        "launch": "launch_app",
+        "open": "launch_app",
     },
 }
 

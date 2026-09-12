@@ -34,7 +34,12 @@ const SW = 1.8;
  * the shape belongs to the destination, not to whoever links to it.
  */
 const ICONS: Record<string, ReactNode> = {
-  ops: <path d="M12 3.2 19 7.3v8.4L12 19.8 5 15.7V7.3z" />,
+  ops: (
+    <>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M12 7v6M9 10h6" />
+    </>
+  ),
   calendar: (
     <>
       <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
@@ -142,20 +147,22 @@ function Item<T extends string>({
       type="button"
       role="tab"
       aria-selected={active}
+      data-tour={`tab-${item.key}`}
       title={collapsed ? item.label : undefined}
       onClick={() => onSelect(item.key)}
       className={`flex w-full items-center gap-3 rounded-full py-2 text-left
-        text-[14px] transition-colors ${collapsed ? "justify-center px-0" : "px-3"} ${
+        text-[14px] font-medium transition-all ${collapsed ? "justify-center px-0" : "px-3"} ${
           active
-            ? "text-fg"
+            ? "text-fg font-semibold"
             : "text-dim hover:bg-elevated hover:text-fg"
         }`}
       style={
         active
           ? {
               background: item.agent
-                ? `var(--color-agent-${item.agent}, var(--color-council-soft))`
-                : "var(--color-council-soft)",
+                ? `var(--color-agent-${item.agent}, var(--color-elevated))`
+                : "var(--color-elevated)",
+              boxShadow: "inset 0 0 0 1px rgba(26, 26, 26, 0.08)",
             }
           : undefined
       }
@@ -167,9 +174,9 @@ function Item<T extends string>({
           {item.agent && !active && (
             <span
               aria-hidden
-              className="size-[5px] shrink-0 rounded-full"
+              className="size-[6px] shrink-0 rounded-full"
               style={{
-                background: `var(--color-agent-${item.agent}, var(--color-council-soft))`,
+                background: `var(--color-agent-${item.agent}, #999)`,
               }}
             />
           )}

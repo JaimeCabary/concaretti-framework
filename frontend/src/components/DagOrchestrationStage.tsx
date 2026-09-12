@@ -13,7 +13,7 @@
 import { useState } from "react";
 import { selectLayers, useAgentStore } from "../store/agentStore";
 import type { Subtask } from "../types";
-import { AgentTag, agentColor, Empty, Panel, StatusBadge } from "./ui";
+import { AgentTag, agentColor, Panel, StatusBadge } from "./ui";
 
 function SubtaskRow({ task }: { task: Subtask }) {
   const [open, setOpen] = useState(false);
@@ -84,7 +84,6 @@ function SubtaskRow({ task }: { task: Subtask }) {
 
 export function DagOrchestrationStage() {
   const layers = useAgentStore(selectLayers);
-  const running = useAgentStore((s) => s.running);
   const total = useAgentStore((s) => s.subtasks.length);
   const blocked = useAgentStore(
     (s) =>
@@ -92,6 +91,8 @@ export function DagOrchestrationStage() {
         (t) => t.status === "rejected" || t.status === "skipped",
       ).length,
   );
+
+  if (total === 0) return null;
 
   return (
     <Panel
@@ -109,14 +110,7 @@ export function DagOrchestrationStage() {
       }
       bodyClass="overflow-y-auto"
     >
-      {total === 0 ? (
-        <Empty>
-          {running
-            ? "Decomposing the request…"
-            : "The plan appears here once a run starts."}
-        </Empty>
-      ) : (
-        <div className="space-y-3 px-3 py-3">
+      <div className="space-y-3 px-3 py-3">
           {layers.slice().reverse().map(([layer, tasks]) => (
             <div key={layer}>
               <p className="type-mono mb-1.5 flex items-center gap-2 text-[10px] text-muted">
@@ -134,7 +128,6 @@ export function DagOrchestrationStage() {
             </div>
           ))}
         </div>
-      )}
     </Panel>
   );
 }

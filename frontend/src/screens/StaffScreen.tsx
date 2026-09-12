@@ -48,9 +48,58 @@ import { RailSessions } from "../components/RailSessions";
 import { Sidebar, type RailItem } from "../components/Sidebar";
 import { TelecomInbox } from "../components/TelecomInbox";
 import { ThoughtStream } from "../components/ThoughtStream";
-import { Result } from "../components/ui";
+import { ConversationFeed } from "../components/ConversationFeed";
 import { WorkDiary } from "../components/WorkDiary";
+import { AgentTag } from "../components/ui";
 import { useAgentStore } from "../store/agentStore";
+import type { Subtask } from "../types";
+
+function AutonomousHudBanner({
+  agent,
+  description,
+  isFinished,
+  countdown,
+  onReturn,
+}: {
+  agent: string;
+  description: string;
+  isFinished: boolean;
+  countdown: number | null;
+  onReturn: () => void;
+}) {
+  return (
+    <div className="shrink-0 bg-obsidian border-b-2 border-hairline/80 px-4 py-2.5 flex items-center justify-between shadow-md z-30 transition-all">
+      <div className="flex items-center gap-3 min-w-0 pr-2">
+        <span className="relative flex size-2.5 shrink-0">
+          <span
+            className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+              isFinished ? "bg-ok" : "bg-[#00E5FF] animate-ping"
+            }`}
+          />
+          <span
+            className={`relative inline-flex size-2.5 rounded-full ${
+              isFinished ? "bg-ok" : "bg-[#00E5FF]"
+            }`}
+          />
+        </span>
+        <AgentTag agent={agent} />
+        <span className="type-mono text-[12px] text-fg font-medium truncate">
+          {isFinished
+            ? `✓ Action complete! Returning to Council in ${countdown ?? 2}s...`
+            : `Autonomous Action in Progress: ${description}`}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onReturn}
+        className="btn btn-primary text-[11px] py-1 px-3 flex items-center gap-1.5 shrink-0 font-mono font-bold hover:brightness-110 active:scale-95 transition-transform cursor-pointer"
+      >
+        <span>← Return to Council</span>
+      </button>
+    </div>
+  );
+}
 
 type Tab =
   | "ops"
@@ -142,7 +191,7 @@ function Run() {
         <div className="mx-auto w-full h-full max-w-[86rem]">
           <div className="grid gap-x-10 h-full lg:grid-cols-2">
             <div className="min-w-0 flex flex-col gap-8 h-full overflow-y-auto pb-8 pr-2">
-              <Result />
+              <ConversationFeed role="staff" />
               <DagOrchestrationStage />
               <ArtifactPanel />
             </div>
@@ -170,25 +219,30 @@ export function StaffScreen() {
   const agents = useAgentStore((s) => s.agents);
   const canSetup = useAgentStore((s) => s.canSetup);
   const hasRun = useAgentStore((s) => s.sessionId !== null);
+  const clearRun = useAgentStore((s) => s.clearRun);
   const subtasks = useAgentStore((s) => s.subtasks);
   const running = useAgentStore((s) => s.running);
-  const clearRun = useAgentStore((s) => s.clearRun);
   const [tab, setTab] = useState<Tab>("ops");
   const autoSwitchRef = useRef<string | null>(null);
+  const [returnCountdown, setReturnCountdown] = useState<number | null>(null);
+  const [lastActiveTask, setLastActiveTask] = useState<Subtask | null>(null);
 
   useEffect(() => {
     const runningTask = subtasks.find((t) => t.status === "running");
     if (runningTask && runningTask.agent) {
+      setLastActiveTask(runningTask);
       if (autoSwitchRef.current !== runningTask.id) {
         autoSwitchRef.current = runningTask.id;
         const agentToTab: Record<string, Tab> = {
           calendar: "calendar",
           email: "email",
           sms: "telecom",
+          telecom: "telecom",
           browser: "browser",
           shopper: "shopper",
           market: "market",
-          chain: "chain"
+          chain: "chain",
+          diary: "diary",
         };
         const newTab = agentToTab[runningTask.agent];
         if (newTab) {
@@ -196,10 +250,28 @@ export function StaffScreen() {
         }
       }
     } else if (!running && autoSwitchRef.current) {
-      setTab("ops");
-      autoSwitchRef.current = null;
+      // Run completed: give 2.5s graceful countdown to show success on screen before rerouting
+      setReturnCountdown(2);
+      const timer = setInterval(() => {
+        setReturnCountdown((c) => {
+          if (c === null || c <= 1) {
+            clearInterval(timer);
+            setTab("ops");
+            autoSwitchRef.current = null;
+            return null;
+          }
+          return c - 1;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
     }
   }, [subtasks, running]);
+
+  const returnToOps = () => {
+    setTab("ops");
+    autoSwitchRef.current = null;
+    setReturnCountdown(null);
+  };
 
   const visible = ITEMS.filter(
     (t) => (!t.agent || agents.includes(t.agent)) && (!t.local || canSetup),
@@ -219,6 +291,17 @@ export function StaffScreen() {
       />
 
       <main className="min-w-0 flex-1 overflow-hidden flex flex-col">
+        {/* Floating Autonomous HUD Banner when agent is manipulating screen outside ops */}
+        {tab !== "ops" && (running || returnCountdown !== null) && lastActiveTask && (
+          <AutonomousHudBanner
+            agent={lastActiveTask.agent}
+            description={lastActiveTask.description || lastActiveTask.task_type}
+            isFinished={!running}
+            countdown={returnCountdown}
+            onReturn={returnToOps}
+          />
+        )}
+
         {tab === "ops" ? (
           hasRun ? (
             <Run />
@@ -249,7 +332,6 @@ export function StaffScreen() {
                   showTimeline={false}
                 />
               </div>
-              {hasRun && <DagOrchestrationStage />}
 
               {/*
                 The agent list lives here rather than under the composer on the
@@ -280,9 +362,7 @@ export function StaffScreen() {
             <WorkDiary />
           </div>
         ) : (
-          /* One column at full width. The stream and the plan used to flank
-             every domain panel in a 320px rail; on a 1280px viewport that left
-             the panel itself in about 900px and put two empty boxes beside it. */
+          /* One column at full width. Clean domain panels without stage clipping. */
           <div className="flex-1 overflow-y-auto px-5 pb-20 pt-6 sm:px-8 lg:px-12">
             <div className="space-y-10">
               <div className="min-w-0">
@@ -300,13 +380,6 @@ export function StaffScreen() {
                   <ChainPanel />
                 )}
               </div>
-
-              {hasRun && (
-                <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
-                  <DagOrchestrationStage />
-                  <ThoughtStream role="staff" />
-                </div>
-              )}
             </div>
           </div>
         )}

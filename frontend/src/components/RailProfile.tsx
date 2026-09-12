@@ -57,7 +57,7 @@ export function RailProfile({
   };
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full" data-tour="profile-role">
       {open && (
         <>
           {/* Backdrop to close menu when clicking outside */}
@@ -156,6 +156,23 @@ export function RailProfile({
                   <line x1="12" y1="17" x2="12.01" y2="17" />
                 </svg>
                 <span>Documentation & Guide</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  localStorage.removeItem("conca_tour_completed");
+                  localStorage.setItem("conca_start_tutorial", "1");
+                  window.dispatchEvent(new Event("conca_start_tutorial"));
+                }}
+                className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12px] text-dim transition-colors hover:bg-elevated hover:text-fg flex items-center gap-2"
+              >
+                <svg viewBox="0 0 24 24" className="size-3.5 text-[#00E5FF]" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <circle cx="12" cy="12" r="10" />
+                  <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" />
+                </svg>
+                <span>Take Interactive Tour</span>
               </button>
             </div>
 

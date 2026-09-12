@@ -9,7 +9,6 @@
 import { useState } from "react";
 import { CouncilCockpit } from "../components/CouncilCockpit";
 import { ArtifactPanel } from "../components/ArtifactPanel";
-import { ThoughtStream } from "../components/ThoughtStream";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { EmailHub } from "../components/EmailHub";
 import { WorkDiary } from "../components/WorkDiary";
@@ -18,7 +17,7 @@ import { DocsPanel } from "../components/DocsPanel";
 import { Sidebar, type RailItem } from "../components/Sidebar";
 import { RailProfile } from "../components/RailProfile";
 import { RailSessions } from "../components/RailSessions";
-import { Result } from "../components/ui";
+import { ConversationFeed } from "../components/ConversationFeed";
 import { useAgentStore } from "../store/agentStore";
 
 type Tab = "ops" | "calendar" | "diary" | "email" | "telecom" | "help";
@@ -93,8 +92,7 @@ function PublicRun() {
       {/* Scrollable Real-Time Content Feed */}
       <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-6 pb-6 sm:px-8 lg:px-12">
         <div className="mx-auto w-full max-w-4xl space-y-6">
-          <Result />
-          <ThoughtStream role="public" />
+          <ConversationFeed role="public" />
           <ArtifactPanel />
         </div>
       </div>

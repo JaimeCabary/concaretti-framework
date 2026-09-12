@@ -273,21 +273,14 @@ export function Chip({
  *
  * These are **fill** colours. Do not use one as a text colour — see `AgentTag`.
  */
-export const agentColor = (agent: string): string =>
-  `var(--color-agent-${agent.toLowerCase().replace(/[^a-z0-9-]/g, "")}, var(--color-council-soft))`;
+export const agentColor = (agent: string): string => {
+  const slug = agent.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const normalized = slug === "concaretti" ? "orchestrator" : slug;
+  return `var(--color-agent-${normalized}, var(--color-council-soft))`;
+};
 
 /**
  * An agent's name, on that agent's colour.
- *
- * Colour is the only thing distinguishing sixteen agents in a list of chips, so
- * it carries real information here rather than decorating: which agent produced
- * a step is the first thing a reader wants from the orchestration panel, and
- * matching hues let them follow one agent down the plan without reading names.
- *
- * The hue is the background and the text is black. Painting the label in the
- * agent's own colour — as this did before — puts pastel text on white at
- * roughly 1.6:1, which loses the name to gain nothing the fill wasn't already
- * saying.
  */
 export function AgentTag({
   agent,
@@ -298,14 +291,16 @@ export function AgentTag({
   title?: string;
   className?: string;
 }) {
+  const isOrch = agent.toLowerCase() === "orchestrator";
+  const display = isOrch ? "Concaretti" : agent;
   return (
     <span
-      title={title}
-      className={`inline-flex items-center rounded-full border-2 border-fg px-1.5 py-0.5
-        font-mono text-[10px] font-semibold uppercase tracking-wider text-fg ${className}`}
+      title={title || (isOrch ? "Concaretti (Orchestrator Council)" : agent)}
+      className={`inline-flex items-center rounded-full border border-fg/30 px-2 py-0.5
+        font-mono text-[9.5px] font-bold uppercase tracking-normal text-fg shrink-0 shadow-2xs ${className}`}
       style={{ background: agentColor(agent) }}
     >
-      {agent}
+      {display}
     </span>
   );
 }

@@ -62,9 +62,14 @@ const KIND_META: Record<string, { label: string; dot: string; bg: string; text: 
 export function CalendarScreen() {
   const runPrompt = useAgentStore((s) => s.runPrompt);
   const running = useAgentStore((s) => s.running);
+  const subtasks = useAgentStore((s) => s.subtasks);
+  const storeEvents = useAgentStore((s) => s.calendarEvents);
+  const calendarLoading = useAgentStore((s) => s.calendarLoading);
+  const refreshCalendar = useAgentStore((s) => s.refreshCalendar);
   const finalSummary = useAgentStore((s) => s.finalSummary);
 
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [localEvents, setLocalEvents] = useState<CalendarEvent[]>([]);
+  const events = localEvents.length > 0 ? localEvents : storeEvents;
   const [selectedDate, setSelectedDate] = useState<string>(todayString());
   const [err, setErr] = useState<string | null>(null);
   const [nl, setNl] = useState("");
@@ -89,7 +94,7 @@ export function CalendarScreen() {
     void api
       .events({ days: 400 })
       .then((r) => {
-        setEvents(r.events);
+        setLocalEvents(r.events);
         setErr(null);
       })
       .catch((e: unknown) =>
@@ -103,11 +108,24 @@ export function CalendarScreen() {
       );
   }, []);
 
+  useEffect(() => {
+    if (storeEvents.length === 0 && !calendarLoading) {
+      void refreshCalendar();
+    }
+  }, [storeEvents.length, calendarLoading, refreshCalendar]);
+
   useEffect(load, [load]);
 
   useEffect(() => {
     if (finalSummary) load();
   }, [finalSummary, load]);
+
+  useEffect(() => {
+    const calendarDone = subtasks.some(
+      (s) => s.agent === "calendar" && s.status === "done",
+    );
+    if (calendarDone) load();
+  }, [subtasks, load]);
 
   // Group events by YYYY-MM-DD
   const eventsByDate = useMemo(() => {
@@ -450,13 +468,15 @@ export function CalendarScreen() {
                 <p className="type-mono text-xs text-muted tracking-widest uppercase font-bold">
                   {dateInfo.isToday ? "TODAY" : "SELECTED DATE"}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(!showAddForm)}
-                  className="type-mono text-xs font-bold text-fg hover:underline uppercase"
-                >
-                  {showAddForm ? "✕ Close Form" : "+ Add Event"}
-                </button>
+                {showAddForm && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(false)}
+                    className="type-mono text-xs font-bold text-dim hover:text-fg uppercase"
+                  >
+                    ✕ Close Form
+                  </button>
+                )}
               </div>
 
               <h2 className="type-display text-[28px] sm:text-[34px] leading-tight text-fg font-extrabold mt-1">
@@ -574,7 +594,20 @@ export function CalendarScreen() {
                 </span>
               </div>
 
-              {selectedEvents.length === 0 ? (
+              {calendarLoading && events.length === 0 ? (
+                <div className="space-y-3 animate-pulse p-2">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="p-3 bg-void border-2 border-hairline space-y-2 rounded">
+                      <div className="flex justify-between items-center">
+                        <div className="h-3 w-16 bg-fg/15 rounded" />
+                        <div className="h-3 w-20 bg-fg/10 rounded" />
+                      </div>
+                      <div className="h-3.5 w-3/4 bg-fg/15 rounded" />
+                      <div className="h-2.5 w-full bg-fg/10 rounded" />
+                    </div>
+                  ))}
+                </div>
+              ) : selectedEvents.length === 0 ? (
                 <div className="p-8 text-center border-2 border-dashed border-hairline">
                   <p className="type-display text-base text-fg mb-1">
                     No events scheduled
@@ -640,6 +673,17 @@ export function CalendarScreen() {
                     </div>
                   );
                 })
+              )}
+              {selectedEvents.length > 0 && !showAddForm && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(true)}
+                    className="btn w-full bg-void hover:bg-elevated text-xs py-2 border-2 border-hairline font-bold uppercase tracking-wider text-dim hover:text-fg transition-colors"
+                  >
+                    + Add Event
+                  </button>
+                </div>
               )}
             </div>
           </div>

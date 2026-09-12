@@ -104,7 +104,8 @@ PROVENANCE_SENSITIVE: frozenset[str] = frozenset({"screen_capture"})
 # "payload" when a chain is flattened, and to hard-refuse regardless of path.
 _DESTRUCTIVE_VERBS: frozenset[str] = frozenset(
     {
-        "rm", "rmdir", "del", "erase", "format", "mkfs", "dd", "shred",
+        "rm", "rmdir", "del", "delete", "erase", "remove", "remove-item", "ri", "rd",
+        "format", "mkfs", "dd", "shred", "wipe", "purge", "destroy", "unlink",
         "takeown", "icacls", "attrib", "reg", "regedit", "diskpart",
         "shutdown", "taskkill", "killall", "chown", "chmod",
     }
@@ -178,6 +179,7 @@ class ConcaRules(BaseModel):
 
 
 class ScheduleDef(BaseModel):
+    id: str | None = None
     cron: str
     prompt: str
 
