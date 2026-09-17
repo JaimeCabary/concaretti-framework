@@ -156,7 +156,7 @@ function Well({ slide, index }: { slide: Slide; index: number }) {
 
   return (
     <div
-      className="mb-5 grid h-40 place-items-center border-2 border-fg shadow-[3px_3px_0px_#000]"
+      className="mb-5 grid h-40 place-items-center border-2 border-fg shadow-[4px_4px_0px_#000] transition-all hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000] duration-300 animate-pulse-soft"
       style={{ background: slide.tint, borderRadius: "var(--radius)" }}
     >
       {illustrations[index % illustrations.length]}
@@ -200,10 +200,10 @@ export function Onboarding() {
   const showRoleStep = canSetup;
   const steps = SLIDES.length + (canSetup ? 1 : 0) + (showRoleStep ? 1 : 0);
 
-  const onRoleStep = showRoleStep && i === 0;
+  const onRoleStep = showRoleStep && i === SLIDES.length;
   const onConnectStep = canSetup && i === steps - 1;
-  const slideIndex = showRoleStep ? i - 1 : i;
-  const slide = !onRoleStep && !onConnectStep ? SLIDES[slideIndex] : null;
+  const slideIndex = i;
+  const slide = i < SLIDES.length ? SLIDES[slideIndex] : null;
 
   const handleProceedFromRoleStep = async () => {
     try {
@@ -215,10 +215,10 @@ export function Onboarding() {
         name: cleanName,
         role: selectedRole,
         onboarded: true,
-        pin: pinInput
+        pin: "0000"
       });
       // also log them in right away
-      await api.login(cleanName.toLowerCase().replace(" ", "_"), pinInput);
+      await api.login(cleanName.toLowerCase().replace(" ", "_"), "0000");
       await bootstrap();
       setI(i + 1);
     } catch (err) {
@@ -307,19 +307,6 @@ export function Onboarding() {
                       value={nameInput}
                       onChange={(e) => setNameInput(e.target.value)}
                       placeholder="Your name or handle..."
-                      className="w-full rounded bg-obsidian px-3 py-2 text-sm border-2 border-hairline outline-none focus:border-fg font-medium transition-colors text-fg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-mono font-bold uppercase tracking-wider text-muted mb-1" htmlFor="operator-pin">
-                      Secure PIN (Required)
-                    </label>
-                    <input
-                      id="operator-pin"
-                      type="password"
-                      value={pinInput}
-                      onChange={(e) => setPinInput(e.target.value)}
-                      placeholder="Enter 4+ digits"
                       className="w-full rounded bg-obsidian px-3 py-2 text-sm border-2 border-hairline outline-none focus:border-fg font-medium transition-colors text-fg"
                     />
                   </div>
@@ -423,11 +410,11 @@ export function Onboarding() {
             <div className="flex shrink-0 gap-2 px-6 pb-6 pt-4">
               <button
                 type="button"
-                disabled={savingRole || (nameInput.trim().length > 0 && pinInput.length < 4)}
+                disabled={savingRole || nameInput.trim().length === 0}
                 className="btn btn-primary flex-1"
                 onClick={handleProceedFromRoleStep}
               >
-                {savingRole ? "Saving..." : pinInput.length < 4 ? "PIN required (4+ digits)" : "Continue"}
+                {savingRole ? "Saving..." : nameInput.trim().length === 0 ? "Name required" : "Continue"}
               </button>
             </div>
           </>
@@ -484,7 +471,7 @@ export function Onboarding() {
               <p className="type-tagline text-[15px] text-dim">
                 {slide.tagline}
               </p>
-              <h2 className="type-display mb-2 mt-1 text-[clamp(24px,4vw,32px)]">
+              <h2 className="type-display mb-2 mt-1 text-[clamp(24px,4vw,32px)] bg-clip-text text-transparent bg-gradient-to-br from-fg via-fg to-muted drop-shadow-sm">
                 {slide.title}
               </h2>
               <p className="mb-2 text-[13px] leading-relaxed text-dim">
