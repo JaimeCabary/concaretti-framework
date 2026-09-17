@@ -1,0 +1,25 @@
+{
+  "name": "Concaretti",
+  "short_name": "Concaretti",
+  "description": "Concurrent agentic reasoning, execution & trust infrastructure",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FFFBF0",
+  "theme_color": "#FFFBF0",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

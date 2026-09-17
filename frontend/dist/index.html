@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <!-- Matches --color-void so the mobile status bar and the first painted frame
+         agree with the app field. A mismatch here is the flash of wrong colour on
+         launch that makes a PWA feel like a web page. -->
+    <meta name="theme-color" content="#FFFBF0" />
+    <meta
+      name="description"
+      content="Concaretti — concurrent agentic reasoning, execution and trust infrastructure"
+    />
+    <!-- The PNG is the artwork the app itself uses for its header mark, so the
+         tab, the header and the installed icon are one file. The SVG is the
+         fallback and the one that scales; iOS ignores SVG touch icons entirely,
+         which is why the PNG is named first there. -->
+    <link rel="icon" type="image/x-icon" href="/icon.ico" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&display=swap" rel="stylesheet" />
+    <title>Concaretti</title>
+    <script type="module" crossorigin src="/assets/index-DXi8Hp8M.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-Cx5yqo8V.js">
+    <link rel="stylesheet" crossorigin href="/assets/vendor-C9XWWAxN.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-CwelKkLu.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
