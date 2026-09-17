@@ -45,10 +45,12 @@ def is_backend_live(port: int = 8000) -> bool:
 
 
 def start_backend():
-    """Start uvicorn server in daemon thread."""
-    os.chdir(str(BACKEND_DIR))
-    from main import app
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+    """Start uvicorn server in a separate process."""
+    import subprocess
+    return subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning"],
+        cwd=str(BACKEND_DIR)
+    )
 
 def apply_window_icon(window):
     """Set the native Windows window icon via Win32 API."""
@@ -118,11 +120,10 @@ def main():
         print(f"  Welcome back, {user_name}!")
     print("=" * 60)
 
-    # 1. Start backend if not already running
+    backend_process = None
     if not is_backend_live(8000):
         print("[*] Starting Concaretti FastAPI backend on http://127.0.0.1:8000 ...")
-        t = threading.Thread(target=start_backend, daemon=True)
-        t.start()
+        backend_process = start_backend()
         
         # Wait for backend to answer
         for _ in range(30):
@@ -149,12 +150,15 @@ def main():
         min_size=(900, 620),
         background_color="#FFFBF0",
         easy_drag=False,
+        maximized=True,
     )
     
     # 4. Start native GUI loop with persistent storage and debug/reload enabled
     threading.Thread(target=apply_window_icon, args=(window,), daemon=True).start()
     webview.start(debug=False, private_mode=False, storage_path=str(storage_dir))
-
+    
+    if backend_process:
+        backend_process.terminate()
 
 if __name__ == "__main__":
     main()
