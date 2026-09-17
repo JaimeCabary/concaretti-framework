@@ -339,7 +339,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     prompt        TEXT DEFAULT '',
     is_temporary  INTEGER DEFAULT 0,
     deleted       INTEGER DEFAULT 0,
-    expires_at    REAL DEFAULT NULL
+    expires_at    REAL DEFAULT NULL,
+    owner         TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS context_entries (
@@ -545,6 +546,7 @@ class MemoryStore:
         ("sessions", "is_temporary", "INTEGER DEFAULT 0"),
         ("sessions", "deleted", "INTEGER DEFAULT 0"),
         ("sessions", "expires_at", "REAL DEFAULT NULL"),
+        ("sessions", "owner", "TEXT DEFAULT NULL"),
     )
 
     def _migrate(self) -> None:

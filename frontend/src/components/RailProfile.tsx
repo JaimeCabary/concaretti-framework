@@ -13,7 +13,7 @@ export function RailProfile({
   const role = useAgentStore((s) => s.role);
   const rotator = useAgentStore((s) => s.rotator);
   const offline = useAgentStore((s) => s.offline);
-  const userName = useAgentStore((s) => s.userName) || "Heccker";
+  const userName = useAgentStore((s) => s.userName) || "";
   const bootstrap = useAgentStore((s) => s.bootstrap);
   const [open, setOpen] = useState(false);
 
@@ -21,7 +21,7 @@ export function RailProfile({
     setOpen(false);
     if (targetRole === role) return;
     try {
-      await api.login(targetRole);
+      await api.login((useAgentStore.getState() as any).userName || "heccker", "");
       await bootstrap();
     } catch (e) {
       console.error("Failed to switch role:", e);

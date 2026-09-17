@@ -11,8 +11,8 @@ export function ThoughtHUD() {
     // Look backwards through events for the latest thought or subtask
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
-      if (e.type === "thought" || e.type === "subtask") {
-        return e.content;
+      if ((e as any).type === "thought" || (e as any).type === "subtask") {
+        return (e as any).content;
       }
     }
     
@@ -64,7 +64,7 @@ export function ThoughtHUD() {
           WebkitLineClamp: 3,
           WebkitBoxOrient: "vertical",
         }}>
-          {latestThought}
+          {latestThought as React.ReactNode}
         </div>
       </div>
     </div>

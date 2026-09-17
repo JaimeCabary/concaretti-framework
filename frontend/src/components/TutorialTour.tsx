@@ -8,13 +8,13 @@ export function TutorialTour() {
 
   useEffect(() => {
     // Check if user just finished onboarding or explicitly triggered tutorial
+    // Only fire when onboarding explicitly sets the flag, never on a blank slate
     const pendingTour = localStorage.getItem("conca_start_tutorial");
-    const completedTour = localStorage.getItem(TOUR_STORAGE_KEY);
-
-    if (pendingTour === "1" || (!completedTour && pendingTour !== "0")) {
+    if (pendingTour === "1") {
+      localStorage.removeItem("conca_start_tutorial");
       const timer = setTimeout(() => {
         setRun(true);
-      }, 1000);
+      }, 800);
       return () => clearTimeout(timer);
     }
 
@@ -81,8 +81,9 @@ export function TutorialTour() {
     <Joyride
       steps={steps}
       run={run}
+      continuous={true}
       onEvent={handleJoyrideEvent}
-      locale={{ last: "Next" }}
+      locale={{ last: "Finish" }}
       options={{
         arrowColor: "#18181B",
         backgroundColor: "#18181B",

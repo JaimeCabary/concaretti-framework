@@ -60,8 +60,6 @@ const KIND_META: Record<string, { label: string; dot: string; bg: string; text: 
 };
 
 export function CalendarScreen() {
-  const runPrompt = useAgentStore((s) => s.runPrompt);
-  const running = useAgentStore((s) => s.running);
   const subtasks = useAgentStore((s) => s.subtasks);
   const storeEvents = useAgentStore((s) => s.calendarEvents);
   const calendarLoading = useAgentStore((s) => s.calendarLoading);
@@ -72,7 +70,6 @@ export function CalendarScreen() {
   const events = localEvents.length > 0 ? localEvents : storeEvents;
   const [selectedDate, setSelectedDate] = useState<string>(todayString());
   const [err, setErr] = useState<string | null>(null);
-  const [nl, setNl] = useState("");
 
   // Navigation state
   const now = new Date();
@@ -243,12 +240,6 @@ export function CalendarScreen() {
     }
   };
 
-  const submitNl = () => {
-    const text = nl.trim();
-    if (!text || running) return;
-    void runPrompt(text);
-    setNl("");
-  };
 
   const removeEvent = (id: string) => {
     void api.deleteEvent(id).then(load);
@@ -324,26 +315,6 @@ export function CalendarScreen() {
         </div>
       </div>
 
-      {/* Ask the Calendar Agent Command Bar — Blueprint Console */}
-      <div className="panel bg-obsidian border-2 border-fg p-2.5 shadow-[2px_2px_0px_#000] flex items-center gap-3 shrink-0">
-        <span className="type-mono text-sm font-bold text-[#68D391] px-1">&gt;_</span>
-        <input
-          value={nl}
-          onChange={(e) => setNl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submitNl()}
-          placeholder="Ask the calendar agent — e.g. 'Schedule team sync next Tuesday at 2pm' or 'What exams are coming up?'"
-          className="min-w-0 flex-1 bg-transparent py-1 text-xs text-fg placeholder:text-muted focus:outline-none font-mono"
-          aria-label="Ask the calendar agent"
-        />
-        <button
-          type="button"
-          onClick={submitNl}
-          disabled={running || !nl.trim()}
-          className="btn bg-[#68D391] text-black border-2 border-black shadow-[2px_2px_0px_#000] text-xs px-3.5 py-1 font-extrabold uppercase hover:brightness-95 disabled:opacity-50 shrink-0"
-        >
-          {running ? "Processing..." : "Ask Agent"}
-        </button>
-      </div>
 
       {err && (
         <div className="p-2.5 bg-danger-soft border-2 border-fg text-xs text-fg flex items-center justify-between shadow-[2px_2px_0px_#000] shrink-0">

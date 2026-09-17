@@ -177,7 +177,9 @@ export function Onboarding() {
   const canSetup = useAgentStore((s) => s.canSetup);
 
   const [selectedRole, setSelectedRole] = useState<Role>(role || "staff");
-  const [nameInput, setNameInput] = useState<string>(userName || "Heccker");
+  const [nameInput, setNameInput] = useState<string>(userName || "");
+  const [pinInput, setPinInput] = useState<string>("");
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [savingRole, setSavingRole] = useState(false);
   const bootstrap = useAgentStore((s) => s.bootstrap);
 
@@ -189,7 +191,7 @@ export function Onboarding() {
     window.dispatchEvent(new Event("conca_start_tutorial"));
     setDismissed(true);
     void api.saveProfile({
-      name: nameInput.trim() || userName || "Heccker",
+      name: nameInput.trim() || userName || "",
       role: selectedRole || role || "staff",
       onboarded: true,
     });
@@ -206,14 +208,17 @@ export function Onboarding() {
   const handleProceedFromRoleStep = async () => {
     try {
       setSavingRole(true);
-      const cleanName = nameInput.trim() || "Heccker";
+      const cleanName = nameInput.trim() || "";
       setUserName(cleanName);
-      await api.login(selectedRole);
-      await api.saveProfile({
+      /* replaced by new login */
+      await (api as any).post("/api/profile", {
         name: cleanName,
         role: selectedRole,
         onboarded: true,
+        pin: pinInput
       });
+      // also log them in right away
+      await api.login(cleanName.toLowerCase().replace(" ", "_"), pinInput);
       await bootstrap();
       setI(i + 1);
     } catch (err) {
@@ -291,18 +296,33 @@ export function Onboarding() {
                   </p>
                 </div>
 
-                <div className="p-3 bg-void border-2 border-fg shadow-[2px_2px_0px_#000]">
-                  <label className="block text-xs font-mono font-bold uppercase tracking-wider text-muted mb-1" htmlFor="operator-name">
-                    Operator / Display Name
-                  </label>
-                  <input
-                    id="operator-name"
-                    type="text"
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    placeholder="e.g. Heccker, Alex, Researcher..."
-                    className="w-full rounded bg-obsidian px-3 py-2 text-sm border-2 border-hairline outline-none focus:border-fg font-medium transition-colors text-fg"
-                  />
+                <div className="p-3 bg-void border-2 border-fg shadow-[2px_2px_0px_#000] space-y-3">
+                  <div>
+                    <label className="block text-xs font-mono font-bold uppercase tracking-wider text-muted mb-1" htmlFor="operator-name">
+                      Operator / Display Name
+                    </label>
+                    <input
+                      id="operator-name"
+                      type="text"
+                      value={nameInput}
+                      onChange={(e) => setNameInput(e.target.value)}
+                      placeholder="Your name or handle..."
+                      className="w-full rounded bg-obsidian px-3 py-2 text-sm border-2 border-hairline outline-none focus:border-fg font-medium transition-colors text-fg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-mono font-bold uppercase tracking-wider text-muted mb-1" htmlFor="operator-pin">
+                      Secure PIN (Required)
+                    </label>
+                    <input
+                      id="operator-pin"
+                      type="password"
+                      value={pinInput}
+                      onChange={(e) => setPinInput(e.target.value)}
+                      placeholder="Enter 4+ digits"
+                      className="w-full rounded bg-obsidian px-3 py-2 text-sm border-2 border-hairline outline-none focus:border-fg font-medium transition-colors text-fg"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2.5">
@@ -403,11 +423,11 @@ export function Onboarding() {
             <div className="flex shrink-0 gap-2 px-6 pb-6 pt-4">
               <button
                 type="button"
-                disabled={savingRole}
+                disabled={savingRole || (nameInput.trim().length > 0 && pinInput.length < 4)}
                 className="btn btn-primary flex-1"
                 onClick={handleProceedFromRoleStep}
               >
-                {savingRole ? "Saving..." : "Continue"}
+                {savingRole ? "Saving..." : pinInput.length < 4 ? "PIN required (4+ digits)" : "Continue"}
               </button>
             </div>
           </>
@@ -425,6 +445,18 @@ export function Onboarding() {
                   Agents need credentials to reach out to the real world. You can set them up now or skip and do it later in Settings.
                 </p>
                 <ConnectAccounts hideHeader />
+                <div className="mt-8 flex items-start gap-3 bg-void p-3 border-2 border-fg">
+                  <input 
+                    type="checkbox" 
+                    id="privacy-policy" 
+                    className="mt-1"
+                    checked={privacyAccepted}
+                    onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                  />
+                  <label htmlFor="privacy-policy" className="text-xs text-dim leading-relaxed cursor-pointer">
+                    <strong className="text-fg">Privacy Policy:</strong> By proceeding, I accept that local data remains on my machine, but queries sent to external agents or APIs may be transmitted over the internet as defined in `.conca` rules.
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -434,10 +466,11 @@ export function Onboarding() {
               </button>
               <button
                 type="button"
+                disabled={!privacyAccepted}
                 className="btn btn-primary flex-1"
                 onClick={finish}
               >
-                Get started
+                {privacyAccepted ? "Get started" : "Accept Policy"}
               </button>
             </div>
           </>

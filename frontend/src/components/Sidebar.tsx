@@ -1,3 +1,4 @@
+
 /**
  * The navigation rail.
  *
@@ -306,6 +307,7 @@ export function Sidebar<T extends string>({
                 <path d="m14 9-3 3 3 3" />
               </svg>
             </button>
+            
           </div>
         ) : (
           <div className="flex justify-center">
@@ -318,6 +320,7 @@ export function Sidebar<T extends string>({
             >
               <ConcarettiLogo />
             </button>
+            
           </div>
         )}
       </div>

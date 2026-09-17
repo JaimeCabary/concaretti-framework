@@ -204,12 +204,13 @@ export const api = {
    * stepping *down* to preview the student or public surface — the default for a
    * local caller is already staff.
    */
-  login: (role: Role) =>
-    post<{ ok: boolean; role: Role; agents: string[] }>("/api/auth/login", {
-      role,
+  login: (username: string, pin: string) =>
+    post<{ ok: boolean; role: Role; agents: string[]; username: string }>("/api/auth/login", {
+      username,
+      pin,
     }),
-  /** Clears the cookie, which drops a local caller back to the staff default. */
-  logout: () => post<{ ok: boolean; role: Role }>("/api/auth/logout"),
+  logout: () => post<{ ok: boolean }>("/api/auth/logout"),
+
   getProfile: () =>
     request<{ name: string; role: Role; onboarded: boolean }>("/api/profile"),
   saveProfile: (data: { name: string; role: Role; onboarded: boolean }) =>
@@ -505,6 +506,8 @@ export const api = {
     postal?: string;
   }) => post<CardStashed>("/api/shopper/secret", body),
   /** Buy. Orchestrated, always — `shop_checkout` is a HALO trigger. */
+  paystackInitialize: (body: { email: string; amount: number; reference?: string }) =>
+    post<{ ok: boolean; authorization_url?: string; reference?: string; error?: string }>("/api/shopper/paystack/initialize", body),
   shopCheckout: (body: {
     url: string;
     item?: string;

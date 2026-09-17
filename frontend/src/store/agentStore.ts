@@ -55,6 +55,7 @@ interface AgentState {
    * setup tab that 403s on open is worse than no tab.
    */
   canSetup: boolean;
+  onboarded: boolean;
 
   // ── live run ────────────────────────────────────────────────────────────
   sessionId: string | null;
@@ -89,6 +90,8 @@ interface AgentState {
 
   // ── actions ─────────────────────────────────────────────────────────────
   bootstrap: () => Promise<void>;
+  logout: () => Promise<void>;
+  loggedOut: boolean;
   runPrompt: (
     prompt: string,
     attachments?: AttachedFile[],
@@ -150,8 +153,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   agents: [],
   haloVisible: false,
   roleLoaded: false,
+  loggedOut: false,
   voiceReady: false,
   canSetup: false,
+  onboarded: typeof window !== "undefined" ? localStorage.getItem("conca_onboarded_v1") === "1" : false,
 
   sessionId: null,
   running: false,
@@ -181,6 +186,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   // ────────────────────────────────────────────────────────────────────────
 
+  logout: async () => {},
+
   async bootstrap() {
     try {
       const [me, conca, profile] = await Promise.all([
@@ -203,6 +210,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           } catch {
             /* ignore */
           }
+          set({ onboarded: true });
         }
       }
       set({
@@ -216,11 +224,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         offline: false,
       });
       // Non-critical; a missing rotator status should not block the app shell.
+      // Staggered to avoid hammering the backend simultaneously and freezing the UI.
       void get().refreshRotator();
       void get().refreshSessions();
-      // Pre-fetch live emails and calendar events instantly on load
-      void get().refreshEmails();
-      void get().refreshCalendar();
+      // Defer email + calendar fetch slightly so the shell renders first
+      setTimeout(() => { void get().refreshEmails(); }, 800);
+      setTimeout(() => { void get().refreshCalendar(); }, 1500);
     } catch (err) {
       // Offline start-up is a supported path for the PWA: fall through to the
       // public screen from cache rather than showing a dead page.
@@ -502,7 +511,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             break;
           }
 
-          case "voice_trigger":
+          case "voice_trigger" as any:
             if (typeof window !== "undefined") {
               // Dispatch an event that the Cockpit/Microphone component can catch
               window.dispatchEvent(new CustomEvent("conca_voice_trigger"));

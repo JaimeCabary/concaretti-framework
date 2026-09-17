@@ -191,9 +191,25 @@ function Run() {
         <div className="mx-auto w-full h-full max-w-[86rem]">
           <div className="grid gap-x-10 h-full lg:grid-cols-2">
             <div className="min-w-0 flex flex-col gap-8 h-full overflow-y-auto pb-8 pr-2">
-              <ConversationFeed role="staff" />
-              <DagOrchestrationStage />
-              <ArtifactPanel />
+              <section className="panel flex flex-col min-h-0">
+                <header className="panel-head">
+                  <h2 className="type-display flex min-w-0 items-center gap-2 text-[14px]">
+                    <span aria-hidden className="panel-swatch" style={{ background: "var(--color-study)" }} />
+                    <span className="truncate uppercase tracking-widest">Execution History</span>
+                  </h2>
+                </header>
+                <div className="p-4 flex-1 overflow-y-auto bg-void/30">
+                  <ConversationFeed role="staff" />
+                </div>
+              </section>
+              
+              <div className="shrink-0">
+                <DagOrchestrationStage />
+              </div>
+              
+              <div className="shrink-0">
+                <ArtifactPanel />
+              </div>
             </div>
             <div className="min-w-0 flex flex-col gap-8 h-full overflow-y-auto pb-8 pl-2">
               <ThoughtStream role="staff" />
@@ -218,7 +234,8 @@ function Run() {
 export function StaffScreen() {
   const agents = useAgentStore((s) => s.agents);
   const canSetup = useAgentStore((s) => s.canSetup);
-  const hasRun = useAgentStore((s) => s.sessionId !== null);
+  const sessionId = useAgentStore((s) => s.sessionId);
+  const hasRun = sessionId !== null;
   const clearRun = useAgentStore((s) => s.clearRun);
   const subtasks = useAgentStore((s) => s.subtasks);
   const running = useAgentStore((s) => s.running);
@@ -226,6 +243,12 @@ export function StaffScreen() {
   const autoSwitchRef = useRef<string | null>(null);
   const [returnCountdown, setReturnCountdown] = useState<number | null>(null);
   const [lastActiveTask, setLastActiveTask] = useState<Subtask | null>(null);
+
+  useEffect(() => {
+    if (sessionId) {
+      setTab("ops");
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     const runningTask = subtasks.find((t) => t.status === "running");

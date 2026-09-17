@@ -64,9 +64,16 @@ def apply_window_icon(window):
         try:
             hwnd = None
             if hasattr(window, "native") and window.native:
-                hwnd = int(window.native.Handle)
+                try:
+                    hwnd = int(window.native.Handle)
+                except Exception:
+                    pass
             if not hwnd:
                 hwnd = ctypes.windll.user32.FindWindowW(None, "Concaretti")
+                console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+                if hwnd and hwnd == console_hwnd:
+                    # Ignore the terminal window and wait for the GUI window
+                    hwnd = None
             if hwnd:
                 IMAGE_ICON = 1
                 LR_LOADFROMFILE = 0x00000010
@@ -146,7 +153,7 @@ def main():
     
     # 4. Start native GUI loop with persistent storage and debug/reload enabled
     threading.Thread(target=apply_window_icon, args=(window,), daemon=True).start()
-    webview.start(debug=True, private_mode=False, storage_path=str(storage_dir))
+    webview.start(debug=False, private_mode=False, storage_path=str(storage_dir))
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ import secrets
 from hashlib import sha256
 from typing import Literal
 
-from fastapi import Cookie, HTTPException, Request
+from fastapi import Cookie, Depends, HTTPException, Request
 
 Role = Literal["public", "student", "staff"]
 
@@ -108,49 +108,76 @@ def _load_secret() -> bytes:
 _SECRET = _load_secret()
 
 
-def _sign(role: str) -> str:
-    return hmac.new(_SECRET, role.encode("utf-8"), sha256).hexdigest()[:32]
+def _sign(payload: str) -> str:
+    return hmac.new(_SECRET, payload.encode("utf-8"), sha256).hexdigest()[:32]
 
 
-def make_cookie(role: Role) -> str:
-    """Build the signed cookie value for a role."""
+def make_cookie(username: str, role: Role) -> str:
+    """Build the signed cookie value for a user and role."""
     if role not in VALID_ROLES:
         raise ValueError(f"unknown role: {role}")
-    return f"{role}.{_sign(role)}"
+    payload = f"{username}:{role}"
+    return f"{payload}.{_sign(payload)}"
 
 
-def verify_cookie(raw: str | None) -> Role | None:
+def verify_cookie(raw: str | None) -> tuple[str, Role] | None:
     """
-    Recover the role from a cookie, or None if absent/tampered.
-
-    Uses a constant-time comparison: a fast-path string `==` would leak signature
-    bytes through timing, which is a silly way to lose a zero-trust claim.
+    Recover the (username, role) from a cookie, or None if absent/tampered.
     """
     if not raw or "." not in raw:
         return None
-    role, _, signature = raw.rpartition(".")
+    payload, _, signature = raw.rpartition(".")
+    if ":" not in payload:
+        # Legacy cookie without username
+        role = payload
+        if role in VALID_ROLES and hmac.compare_digest(signature, _sign(role)):
+            return ("legacy_user", role)  # type: ignore[return-value]
+        return None
+    
+    username, _, role = payload.rpartition(":")
     if role not in VALID_ROLES:
         return None
-    if not hmac.compare_digest(signature, _sign(role)):
+    if not hmac.compare_digest(signature, _sign(payload)):
         return None
-    return role  # type: ignore[return-value]
+    return username, role  # type: ignore[return-value]
 
 
-async def current_role(
+async def current_session(
     request: Request,
     conca_role: str | None = Cookie(default=None, alias=COOKIE_NAME),
-) -> Role:
+) -> tuple[str | None, Role]:
     """
-    FastAPI dependency: the verified role.
-
-    Cookie first, so an explicit choice — including a deliberate step *down* to
-    preview the student or public surface — always wins over the ambient default.
-    Absent a cookie, a loopback caller is the owner and a remote one is public.
+    FastAPI dependency: returns (username, verified_role).
     """
     from_cookie = verify_cookie(conca_role)
     if from_cookie is not None:
         return from_cookie
-    return LOCAL_ROLE if is_local(request) else _remote_role()
+    
+    # Check if profiles.json exists. If it exists, they MUST login to get a staff role.
+    profiles_path = os.path.join(os.path.dirname(__file__), "..", "profiles.json")
+    if os.path.exists(profiles_path):
+        return None, _remote_role()  # Forced to login/public
+
+    # Fallback to local auto-staff if no profiles exist yet (first-time onboarding)
+    auto_role = LOCAL_ROLE if is_local(request) else _remote_role()
+    auto_name = None
+    if auto_role == LOCAL_ROLE:
+        profile_file = os.path.join(os.path.dirname(__file__), "..", "user_profile.json")
+        if os.path.exists(profile_file):
+            try:
+                import json
+                with open(profile_file, "r", encoding="utf-8") as f:
+                    p_data = json.loads(f.read())
+                    auto_name = p_data.get("name")
+            except Exception:
+                pass
+    return auto_name, auto_role
+
+async def current_role(request: Request, session: tuple[str | None, Role] = Depends(current_session)) -> Role:
+    return session[1]
+
+async def current_user(request: Request, session: tuple[str | None, Role] = Depends(current_session)) -> str | None:
+    return session[0]
 
 
 def require_staff(role: Role) -> Role:

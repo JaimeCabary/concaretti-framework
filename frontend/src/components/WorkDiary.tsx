@@ -66,6 +66,7 @@ export function WorkDiary() {
   const [assisted, setAssisted] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
 
   // Load all diary entries from backend
   const load = useCallback(() => {
@@ -188,6 +189,7 @@ export function WorkDiary() {
 
   const handleSelectDay = (dateStr: string) => {
     setSelectedDate(dateStr);
+    setIsCreatingNew(false);
     const dayEntries = entriesByDate.get(dateStr) || [];
     if (dayEntries.length > 0) {
       const e = dayEntries[0];
@@ -205,6 +207,7 @@ export function WorkDiary() {
 
   // Sync selected day's first entry to notebook on load
   useEffect(() => {
+    if (isCreatingNew) return;
     const dayEntries = entriesByDate.get(selectedDate) || [];
     if (dayEntries.length > 0 && !editingEntryId && !summary) {
       const e = dayEntries[0];
@@ -213,7 +216,7 @@ export function WorkDiary() {
       setReflection(e.reflection || "");
       setAssisted(Boolean(e.agent_assisted));
     }
-  }, [entriesByDate, selectedDate, editingEntryId, summary]);
+  }, [entriesByDate, selectedDate, editingEntryId, summary, isCreatingNew]);
 
   // Ask AI Agent to synthesize a summary from today's sessions
   const askAgent = () => {
@@ -235,6 +238,7 @@ export function WorkDiary() {
     setReflection("");
     setAssisted(false);
     setEditingEntryId(null);
+    setIsCreatingNew(true);
   };
 
   const startEditEntry = (entry: DiaryEntry) => {
@@ -260,6 +264,7 @@ export function WorkDiary() {
       });
       if (res && res.entry) {
         setEditingEntryId(res.entry.id);
+        setIsCreatingNew(false);
       }
       load();
     } catch (e) {
@@ -502,10 +507,14 @@ export function WorkDiary() {
                 type="button"
                 onClick={askAgent}
                 disabled={running}
-                className="type-mono text-[11px] font-bold px-3 py-1.5 bg-obsidian border border-hairline hover:border-fg text-fg rounded transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5"
-                title="Draft diary summary from today's work sessions"
+                className="p-1.5 bg-obsidian border border-hairline hover:border-fg text-fg rounded transition-colors shadow-2xs cursor-pointer flex items-center justify-center disabled:opacity-50"
+                title="Draft with Council AI"
               >
-                {running && assisted ? "Council drafting..." : "Draft with Council AI"}
+                {running && assisted ? (
+                  <svg viewBox="0 0 24 24" className="size-4 animate-spin text-accent" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.89 1.12l-3.122.78a.75.75 0 01-.926-.926l.78-3.122a4.5 4.5 0 011.12-1.89l14.068-14.068z" /></svg>
+                )}
               </button>
 
               {editingEntryId && (
@@ -513,18 +522,18 @@ export function WorkDiary() {
                   <button
                     type="button"
                     onClick={startNewEntry}
-                    className="type-mono text-[11px] font-bold px-2.5 py-1.5 bg-obsidian border border-hairline hover:border-fg text-fg rounded transition-colors shadow-2xs cursor-pointer"
-                    title="Write a new entry for this day"
+                    className="p-1.5 bg-obsidian border border-hairline hover:border-fg text-fg rounded transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
+                    title="New Note"
                   >
-                    + New Note
+                    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                   </button>
                   <button
                     type="button"
                     onClick={() => deleteEntry(editingEntryId)}
-                    className="type-mono text-[11px] font-bold px-2.5 py-1.5 bg-obsidian border border-hairline hover:border-danger hover:text-danger text-muted rounded transition-colors shadow-2xs cursor-pointer"
-                    title="Delete this entry"
+                    className="p-1.5 bg-obsidian border border-hairline hover:border-danger hover:text-danger text-muted rounded transition-colors shadow-2xs cursor-pointer flex items-center justify-center"
+                    title="Delete Note"
                   >
-                    Delete
+                    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                   </button>
                 </>
               )}
@@ -533,9 +542,14 @@ export function WorkDiary() {
                 type="button"
                 onClick={saveEntry}
                 disabled={!summary.trim() || saving}
-                className="btn btn-primary text-xs py-1.5 px-4 font-bold uppercase rounded shadow-2xs cursor-pointer"
+                className="p-1.5 bg-accent text-accent-fg border border-accent hover:opacity-90 rounded transition-colors shadow-2xs cursor-pointer flex items-center justify-center disabled:opacity-50"
+                title={saving ? "Saving..." : editingEntryId ? "Update Note" : "Save Note"}
               >
-                {saving ? "Saving..." : editingEntryId ? "Update Note" : "Save Note"}
+                {saving ? (
+                  <svg viewBox="0 0 24 24" className="size-4 animate-spin" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                )}
               </button>
             </div>
           </div>

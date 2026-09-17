@@ -20,6 +20,7 @@
 import { useEffect } from "react";
 import { HaloGate } from "./components/HaloGate";
 import { Onboarding } from "./components/Onboarding";
+import { LockScreen } from "./components/LockScreen";
 import { TutorialTour } from "./components/TutorialTour";
 import { useAgentStore } from "./store/agentStore";
 import { PublicScreen } from "./screens/PublicScreen";
@@ -40,6 +41,8 @@ function OfflineBanner() {
 export function App() {
   const role = useAgentStore((s) => s.role);
   const roleLoaded = useAgentStore((s) => s.roleLoaded);
+  const loggedOut = useAgentStore((s) => s.loggedOut);
+  const onboarded = useAgentStore((s) => s.onboarded);
   const bootstrap = useAgentStore((s) => s.bootstrap);
 
   useEffect(() => {
@@ -89,10 +92,10 @@ export function App() {
 
       {/* First run only, and self-gating on localStorage. Rendered last so it
           paints over the shell it is describing. */}
-      <Onboarding />
+      {loggedOut ? <LockScreen /> : <Onboarding />}
 
-      {/* Interactive feature tour post-onboarding */}
-      <TutorialTour />
+      {/* Interactive feature tour — only after onboarding is done */}
+      {onboarded && <TutorialTour />}
     </>
   );
 }

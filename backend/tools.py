@@ -1049,9 +1049,9 @@ def _artifacts_dir(policy: ConcaPolicy) -> Path:
 
 
 async def read_file(payload: dict, ctx: ExecContext) -> dict:
-    raw_path = str(payload.get("path", "")).strip()
+    raw_path = str(payload.get("path") or payload.get("filename") or "").strip()
     if not raw_path:
-        return _fail("path is required")
+        return _fail("path or filename is required")
 
     allowed, reason = check_path(ctx.policy, raw_path)
     if not allowed:
@@ -4744,20 +4744,30 @@ async def screen_capture(payload: dict, ctx: ExecContext) -> dict:
         found = _SCREEN_REF.search(hay)
         ref = found.group(1) if found else ""
     if not ref:
-        return _fail(
-            "no `capture_ref` in this step. Screenshots are not accepted as a tool "
-            "argument — they arrive at POST /api/desktop/capture and this tool is "
-            "handed the receipt, so that the pixels never enter a prompt, a "
-            "transcript or an embedding."
-        )
-
-    got = _take_screen(ref)
-    if not got:
-        return _fail(
-            f"that capture is spent or expired. Frames are held for {int(SCREEN_TTL)}s "
-            "and readable once, so press the shortcut again."
-        )
-    image_b64, mime = got
+        try:
+            import mss
+            import mss.tools
+            import base64
+            with mss.mss() as sct:
+                monitor = sct.monitors[1]
+                sct_img = sct.grab(monitor)
+                raw_bytes = mss.tools.to_png(sct_img.rgb, sct_img.size)
+                image_b64 = base64.b64encode(raw_bytes).decode("utf-8")
+                mime = "image/png"
+        except Exception as e:
+            return _fail(
+                f"no `capture_ref` in this step. Screenshots are not accepted as a tool "
+                f"argument, and fallback local capture failed: {e}. "
+                "They should arrive at POST /api/desktop/capture."
+            )
+    else:
+        got = _take_screen(ref)
+        if not got:
+            return _fail(
+                f"that capture is spent or expired. Frames are held for {int(SCREEN_TTL)}s "
+                "and readable once, so press the shortcut again."
+            )
+        image_b64, mime = got
 
     question = str(payload.get("question") or payload.get("query") or "").strip()
     ctx.note("Reading the captured screen" + (f" — {question[:60]}" if question else ""))

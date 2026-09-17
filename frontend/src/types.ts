@@ -645,6 +645,7 @@ export interface ShopCandidate {
   reviews: number;
   availability: string;
   merchant: string;
+  image?: string;
   /** Which currency `price_converted` is in. Added by `shop_search`. */
   price_in?: string;
   price_converted?: number | null;

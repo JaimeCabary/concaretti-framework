@@ -99,16 +99,16 @@ export function DagOrchestrationStage() {
       title="Orchestration"
       accent="var(--color-reports)"
       actions={
-        total > 0 ? (
-          <span className="text-[11px] text-muted">
-            {total} step{total === 1 ? "" : "s"}
-            {blocked > 0 ? (
-              <span className="text-danger"> · {blocked} refused</span>
-            ) : null}
-          </span>
-        ) : null
+        <span className="type-mono text-[10px] text-muted">
+          {blocked > 0 ? (
+            <>
+              {total} steps · <span className="text-danger">{blocked} refused</span>
+            </>
+          ) : (
+            `${total} steps`
+          )}
+        </span>
       }
-      bodyClass="overflow-y-auto"
     >
       <div className="space-y-3 px-3 py-3">
           {layers.slice().reverse().map(([layer, tasks]) => (

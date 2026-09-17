@@ -102,7 +102,7 @@ function TurnThoughts({ turn, isLatest = false }: { turn: ChatTurn; isLatest?: b
             {isRunning ? "Council Deliberating & Executing" : "Thought Process"}
           </span>
 
-          <span className="type-mono text-[10px] text-muted shrink-0">
+          <span className="type-mono text-[10px] text-muted truncate min-w-0">
             · {subtasks.length} step(s) {thoughts.length > 0 ? `· ${thoughts.length} trace(s)` : ""}
           </span>
         </div>
@@ -183,20 +183,14 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
       className="inline-flex items-center gap-1 text-[11px] font-mono text-muted hover:text-fg px-2 py-0.5 rounded hover:bg-elevated transition-colors cursor-pointer"
     >
       {copied ? (
-        <>
-          <svg viewBox="0 0 24 24" className="size-3 text-ok" fill="none" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-          </svg>
-          <span className="text-ok font-semibold text-[10px]">Copied</span>
-        </>
+        <svg viewBox="0 0 24 24" className="size-3.5 text-ok transition-transform scale-110" fill="none" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+        </svg>
       ) : (
-        <>
-          <svg viewBox="0 0 24 24" className="size-3" fill="none" stroke="currentColor" strokeWidth={2}>
-            <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-          </svg>
-          <span className="text-[10px]">{label}</span>
-        </>
+        <svg viewBox="0 0 24 24" className="size-3.5 transition-transform hover:scale-105" fill="none" stroke="currentColor" strokeWidth={2}>
+          <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+        </svg>
       )}
     </button>
   );

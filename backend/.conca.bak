@@ -1,0 +1,243 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Concaretti master security & permission boundary.
+#
+# This file is the enforcement contract, not a suggestion to the model. The
+# orchestrator loads it on every dispatch and applies it AFTER the LLM has
+# produced a plan but BEFORE any tool runs. Stochastic model output cannot
+# negotiate past it.
+# ═══════════════════════════════════════════════════════════════════════════
+version: 1
+
+security_overrides:
+  autonomous_interactivity: true
+  financial_transactions: false
+  deep_data_parsing: true
+  meeting_attendance: true
+
+# Global agent kill-switches. An agent marked `disabled` is dropped from the
+# DAG during the .conca check — the orchestrator never gets to dispatch it.
+agent_permissions:
+  orchestrator: enabled
+  research: enabled
+  email: enabled
+  file: enabled
+  calendar: enabled
+  scheduler: enabled
+  sms: enabled
+  therapy: enabled
+  github: enabled
+  news: enabled
+  social: enabled
+  # Enabled with its execution surface narrowed rather than left off.
+  #
+  # The earlier reason for disabling this was that ".conca can only screen what
+  # it can see, and a driven browser hides the payload." That objection was
+  # answered by making the browser screenable instead of trusting it: the URL is
+  # checked against `off_limits.paths` and `blocked_domains` before navigation,
+  # extraction is read-only, and any in-page interaction is `browser_act`, which
+  # is in HALO_TRIGGERS and therefore cannot run unapproved. What is left is a
+  # reader, screened the same way `scrape_url` is.
+  browser: enabled
+  # Money agents. All three are enabled; what limits them is not this switch but
+  # the two keys below (`checkout_mode`, `financial_transactions`) and the HALO
+  # gate on their three irreversible task types.
+  #
+  #   shopper — searches, compares, fills a cart. `shop_checkout` is HALO-gated
+  #             and, under `financial_transactions: false`, can only reach the
+  #             payment page and stop. `shop_search`, `shop_compare` and
+  #             `order_track` are reads.
+  #   market  — quotes and fundamentals are reads; `paper_trade` writes to a local
+  #             SQLite ledger. There is no brokerage integration to enable, so
+  #             nothing here can place a real order however this file is edited.
+  #   chain   — Solana. Reads balances and history, and builds *unsigned*
+  #             transactions for a wallet to sign. It holds no key and has no
+  #             signing or submit path; `chain_prepare_tx` is HALO-gated because
+  #             a signed Solana transfer cannot be recalled by anyone.
+  shopper: enabled
+  market: enabled
+  chain: enabled
+  # The desktop overlay's one capability: read a frame the operator captured with
+  # the global shortcut and answer about it. Granted to `staff` only — see the note
+  # under role_permissions, which is the whole reason this is not part of `browser`.
+  #
+  # `screen_capture` is HALO-gated, and `rules.screen_capture` below decides whether
+  # the gate opens per frame (`ask`), is pre-authorised (`on`), or whether the
+  # capability refuses outright (`off`). No pixels are ever written to disk, and the
+  # description is excluded from the vector index by provenance.
+  desktop: enabled
+  # Left explicitly disabled rather than absent, so the engine can be
+  # demonstrated refusing a request that routes to one of them. Each is off for a
+  # stated reason, not for lack of time:
+  #   deploy  — pushing to production is the one action a demo must not own.
+  #   chaos   — prompt morphing mutates a plan after it was screened.
+  #   coding  — multi-turn codegen is the orchestrator's job; `python_execute`
+  #             already covers running code, under HALO.
+  #   health  — process telemetry comes from the process itself
+  #             (GET /api/health/probe and /api/metrics/system), not from an agent
+  #             that could be asked to report on its own liveness.
+  deploy: disabled
+  chaos: disabled
+  coding: disabled
+  health: disabled
+
+# Role scoping, enforced server-side after HMAC cookie verification. A request
+# may dispatch an agent only if it appears under the caller's role AND is
+# `enabled` above. The frontend mirrors this for layout; it is never trusted.
+role_permissions:
+  public:
+    - research
+  student:
+    - research
+    - file
+    - scheduler
+    - calendar
+    - therapy
+    - news
+    - browser
+    # `market` and not `shopper` or `chain`. Role grants are per-agent, not
+    # per-task, so granting an agent grants every task it owns — and `chain`
+    # owns `chain_prepare_tx`. `market` is the only one of the three whose
+    # entire surface is either a read or a write to a local paper ledger, so
+    # it is the only one that can be handed to a wider role without also
+    # handing over a path to money.
+    - market
+  staff:
+    - research
+    - file
+    - scheduler
+    - calendar
+    - email
+    - sms
+    - therapy
+    - github
+    - news
+    - social
+    - browser
+    - shopper
+    - market
+    - chain
+    # `desktop` is staff-only, and this is the reason it is its own agent rather
+    # than a fifth `browser` tool: `browser` is granted to `student` above, so
+    # folding a screen reader into it would have handed every student-scoped
+    # caller a view of the operator's entire display. `screenshot_page` and
+    # `screen_capture` sound like the same capability and are not — one
+    # photographs a URL this file screened first, the other photographs whatever
+    # happened to be in front of a person when a hotkey fired.
+    - desktop
+
+# Domains the browser agent will not navigate to, checked against the normalized
+# host before Chromium is asked for the page. Separate from `off_limits.paths`
+# because a URL host is not a filesystem path and matching one against the other
+# gives false confidence in both directions.
+blocked_domains:
+  - localhost
+  - 127.0.0.1
+  - 0.0.0.0
+  - "[::1]"
+  # Cloud instance metadata. The classic SSRF target: an agent that can be talked
+  # into fetching this URL hands over credentials, and it is reachable from any
+  # process that can open a socket.
+  - 169.254.169.254
+  - metadata.google.internal
+
+# No connectors are configured. The engine reads this list and
+# `/api/conca/status` displays it; nothing dials an MCP endpoint yet, so a
+# placeholder entry here would be a claim the code does not honour.
+connectors: []
+
+# Deny-list. Checked against the *normalized* command/path, so obfuscated
+# spellings (hex escapes, $HOME expansion, ../ traversal) still match.
+off_limits:
+  paths:
+    - /private
+    - ~/.ssh
+    - /finance
+    - C:\Windows
+    - C:\Users\Admin\AppData\Local\Temp
+
+# Allow-list. When non-empty, a file operation must land inside one of these
+# roots or it is refused — deny-by-default rather than deny-known-bad.
+allowed_paths:
+  - C:\Users\Admin\Desktop
+  - C:\Users\Admin\Documents
+  - C:\Users\Admin\Downloads
+
+rules:
+  default_save_path: "C:\\Users\\Admin\\Desktop"
+  confirm_before_send_email: true
+  confirm_before_send_sms: true
+  confirm_before_call: true
+  max_file_size_mb: 50
+
+  # ── How far the shopper agent may carry a purchase ──
+  #
+  #   handoff     fills the cart, opens the payment page, stops. No card number
+  #               ever enters the process. Works while financial_transactions is
+  #               false, which is why it is the default: the useful part of the
+  #               errand — find it, price it, compare it, load the cart — needs no
+  #               spending authority at all.
+  #   autonomous  types the card itself. Details arrive at POST /api/shopper/secret,
+  #               live in RAM for 180 seconds, are readable once, and are never
+  #               logged, hashed, embedded or screenshotted.
+  #   wallet      pays on-chain; the agent builds an unsigned transaction and you
+  #               sign it in your own wallet.
+  #
+  # The last two additionally require `security_overrides.financial_transactions:
+  # true`. Two keys rather than one on purpose — spending money should take a
+  # deliberate edit in two places, not a single flag someone flips while reading
+  # something else.
+  checkout_mode: handoff
+
+  # ── Whether the desktop overlay may photograph the screen ──
+  #
+  #   off  the capture command refuses; no pixels are read
+  #   ask  every capture opens a HALO gate first
+  #   on   captures without a gate, still never written to disk
+  #
+  # `ask` because a screen is not a document you chose to share — it holds whatever
+  # happened to be in front of you when the shortcut was pressed.
+  screen_capture: ask
+
+  # Hardship routing. When a prompt carries emotional distress AND material
+  # need, answer from the Layer-0 template immediately, then order the DAG by
+  # this policy instead of letting the decomposer guess. Immediate need is
+  # never queued behind a long income search.
+  hardship_response:
+    enabled: true
+    first_agent: therapy
+    # These must be agents that are `enabled` above, or the .conca check drops
+    # them from the DAG and the hardship path silently runs therapy alone. This
+    # previously named `health` and `browser`, both of which were disabled — so
+    # the one route in the policy that exists to reach someone in trouble was the
+    # one route that reached nothing. `research` and `browser` are both enabled
+    # and are what actually answers "find help near me".
+    parallel_after_therapy:
+      - research
+      - browser
+    immediate_before_longterm: true
+    immediate_needs:
+      - food banks and free meal programs near the user
+      - emergency cash assistance and hardship grants
+      - student welfare and hardship funds
+    longterm_needs:
+      - remote and freelance income opportunities
+      - skills-to-income matches for the user's background
+
+schedules:
+  - cron: "0 7 * * *"
+    prompt: "Run morning intelligence brief"
+  - cron: "0 9 * * 1"
+    prompt: "Find top AI news this week and save a report"
+  # "Foresee everything till delivery", as a cron entry rather than a thread.
+  #
+  # A background watcher of its own would be a second execution path with none of
+  # this file's screening on it. Coming through the scheduler means the poll is
+  # dispatched by `orch().run(...)` exactly as a typed prompt is, and meets the same
+  # agent kill-switch, the same role check and the same HALO gate.
+  #
+  # Every 26 minutes rather than every 30: `order_track` skips anything read in the
+  # last 30 minutes, so a 26-minute cadence guarantees each order is looked at once
+  # per window without every tick landing on the same clock minute as the two jobs
+  # above.
+  - cron: "*/26 * * * *"
+    prompt: "Check every open order for a delivery status change and tell me what moved"

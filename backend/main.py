@@ -40,7 +40,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -51,6 +51,7 @@ else:
     load_dotenv()
 
 from agents import Orchestrator  # noqa: E402
+import auth  # noqa: E402
 from auth import (  # noqa: E402
     COOKIE_NAME,
     VALID_ROLES,
@@ -572,31 +573,99 @@ async def conca_simulate(req: SimulateRequest) -> dict:
 
 
 class LoginRequest(BaseModel):
-    role: Literal["public", "student", "staff"]
+    username: str
+    pin: str | None = None
 
 
 @app.post("/api/auth/login")
 async def login(req: LoginRequest, request: Request, response: Response) -> dict:
-    """
-    Set the role cookie explicitly.
-
-    Local callers only. This route used to mint a staff cookie for anyone who asked
-    — which is what made the council PIN sitting beside it decorative — so it is now
-    bounded by the same machine boundary that grants the local role in the first
-    place. What it is *for* is stepping down: previewing the student or public
-    surface without editing `.conca`, and `logout` to return to the default.
-    """
-    require_local(request)
-    if req.role not in VALID_ROLES:
-        raise HTTPException(400, f"role must be one of {VALID_ROLES}")
+    import hashlib
+    profiles = _read_profiles()
+    if req.username not in profiles:
+        raise HTTPException(401, "Invalid username or PIN")
+        
+    p = profiles[req.username]
+    if p.get("pin_hash"):
+        if not req.pin:
+             raise HTTPException(401, "PIN required")
+        if hashlib.sha256(req.pin.encode()).hexdigest() != p["pin_hash"]:
+             raise HTTPException(401, "Invalid username or PIN")
+             
+    role = p.get("role", "public")
+    
     response.set_cookie(
-        key=COOKIE_NAME,
-        value=make_cookie(req.role),
+        key=auth.COOKIE_NAME,
+        value=auth.make_cookie(req.username, role),
         httponly=True,
         samesite="lax",
         max_age=60 * 60 * 24 * 7,
     )
-    return {"ok": True, "role": req.role, "agents": policy().agents_for_role(req.role)}
+    return {"ok": True, "role": role, "username": req.username, "agents": policy().agents_for_role(role)}
+
+
+import urllib.parse
+import envfile
+
+@app.get("/api/auth/google/login")
+async def google_login(request: Request):
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    if not client_id:
+        return {"error": "Missing GOOGLE_CLIENT_ID. Please add it to your settings first."}
+    
+    # In desktop mode, we assume the frontend is hosted at 127.0.0.1:8000
+    # or the window url. We'll use a fixed localhost callback.
+    redirect_uri = "http://127.0.0.1:8000/api/auth/google/callback"
+    scopes = [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.compose",
+        "https://www.googleapis.com/auth/calendar"
+    ]
+    
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(scopes),
+        "access_type": "offline",
+        "prompt": "consent"
+    }
+    
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+    return RedirectResponse(auth_url)
+
+
+@app.get("/api/auth/google/callback")
+async def google_callback(request: Request, code: str):
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    redirect_uri = "http://127.0.0.1:8000/api/auth/google/callback"
+    
+    if not client_id or not client_secret:
+        return {"error": "Missing client ID or secret"}
+    
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri,
+            }
+        )
+    
+    data = res.json()
+    refresh_token = data.get("refresh_token")
+    
+    if refresh_token:
+        # Save to .env using envfile module
+        envfile.apply({"GOOGLE_REFRESH_TOKEN": refresh_token})
+        # Note: server restart might be needed to pick up the token for background tasks
+    
+    # Redirect back to the settings page in the frontend
+    return RedirectResponse("/")
 
 
 @app.post("/api/auth/logout")
@@ -606,50 +675,49 @@ async def logout(response: Response) -> dict:
 
 
 @app.get("/api/auth/me")
-async def me(request: Request, role: Role = Depends(current_role)) -> dict:
+async def me(request: Request, session: tuple[str | None, auth.Role] = Depends(auth.current_session)) -> dict:
+    username, role = session
     return {
+        "username": username,
+        "logged_out": username is None,
         "role": role,
         "agents": policy().agents_for_role(role),
         "halo_visible": role in {"student", "staff"},
-        # Whether the mic is worth showing at all. Sent with identity because the
-        # client needs it before the first click, and a button that only reveals
-        # itself to be unavailable once pressed is worse than no button.
         "voice": _voice_ready(),
-        # Same reasoning for the setup surface: the two conditions that gate it are
-        # both known here, and offering a "connect your accounts" step that 403s on
-        # submit is worse than not offering it. False on the phone wrapper, which
-        # reaches the server over a LAN and cannot write its `.env`.
-        "setup": role == "staff" and is_local(request),
+        "setup": role == "staff" and auth.is_local(request),
     }
 
 
 class ProfilePayload(BaseModel):
     name: str = ""
-    role: str = "staff"
-    onboarded: bool = True
+    onboarded: bool = False
 
 
 PROFILE_FILE = Path(__file__).parent.parent / "user_profile.json"
 
 
 @app.get("/api/profile")
-async def get_profile() -> dict:
+async def get_profile(role: Role = Depends(current_role)) -> dict:
+    data: dict = {"name": "", "onboarded": False}
     if PROFILE_FILE.exists():
         try:
-            return json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
+            stored = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
+            data["name"] = stored.get("name", "")
+            data["onboarded"] = stored.get("onboarded", False)
         except Exception:
             pass
-    return {"name": "Heccker", "role": "staff", "onboarded": True}
+    data["role"] = role
+    return data
 
 
 @app.post("/api/profile")
-async def update_profile(payload: ProfilePayload) -> dict:
-    data = {"name": payload.name, "role": payload.role, "onboarded": payload.onboarded}
+async def update_profile(payload: ProfilePayload, role: Role = Depends(current_role)) -> dict:
+    data = {"name": payload.name, "onboarded": payload.onboarded}
     try:
         PROFILE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception as err:
         print("[!] Failed writing profile file:", err)
-    return {"ok": True, **data}
+    return {"ok": True, **data, "role": role}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1930,6 +1998,45 @@ class CheckoutRequest(BaseModel):
     currency: str = "USD"
     cart_url: str = ""
     card_ref: str = ""
+
+
+
+from pydantic import BaseModel
+import httpx
+import os
+
+class PaystackInitRequest(BaseModel):
+    email: str
+    amount: float
+    reference: str = ""
+
+@app.post("/api/shopper/paystack/initialize")
+async def paystack_initialize(req: PaystackInitRequest, role: Role = Depends(current_role)) -> dict:
+    _require_agent("shopper", role, "shopper")
+    secret_key = os.environ.get("PAYSTACK_SECRET_KEY")
+    if not secret_key:
+        return {"ok": False, "error": "PAYSTACK_SECRET_KEY is not set in .env"}
+    
+    headers = {
+        "Authorization": f"Bearer {secret_key}",
+        "Content-Type": "application/json"
+    }
+    
+    # Paystack amount is in kobo/cents
+    payload = {
+        "email": req.email,
+        "amount": int(req.amount * 100)
+    }
+    if req.reference:
+        payload["reference"] = req.reference
+        
+    async with httpx.AsyncClient() as client:
+        res = await client.post("https://api.paystack.co/transaction/initialize", json=payload, headers=headers)
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("status"):
+                return {"ok": True, "authorization_url": data["data"]["authorization_url"], "reference": data["data"]["reference"]}
+        return {"ok": False, "error": res.text}
 
 
 @app.post("/api/shopper/checkout")
