@@ -178,7 +178,6 @@ export function Onboarding() {
 
   const [selectedRole, setSelectedRole] = useState<Role>(role || "staff");
   const [nameInput, setNameInput] = useState<string>(userName || "");
-  const [pinInput, setPinInput] = useState<string>("");
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [savingRole, setSavingRole] = useState(false);
   const bootstrap = useAgentStore((s) => s.bootstrap);
