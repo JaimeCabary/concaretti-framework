@@ -63,10 +63,10 @@ const WEEK_ROW_TINTS = [
 ];
 
 const KIND_META: Record<string, { label: string; dot: string; bg: string; text: string }> = {
-  exam: { label: "Exam", dot: "#FF3366", bg: "rgba(255, 51, 102, 0.15)", text: "#FF3366" },
-  deadline: { label: "Deadline", dot: "#ECC94B", bg: "rgba(236, 201, 75, 0.15)", text: "#ECC94B" },
-  revision: { label: "Revision", dot: "#9F7AEA", bg: "rgba(159, 122, 234, 0.15)", text: "#9F7AEA" },
-  event: { label: "Event", dot: "#4FD1C5", bg: "rgba(79, 209, 197, 0.15)", text: "#4FD1C5" },
+  exam:     { label: "Exam",     dot: "#e53e3e", bg: "#FEE2E2", text: "#991B1B" },
+  deadline: { label: "Deadline", dot: "#d69e2e", bg: "#FEF9C3", text: "#92400E" },
+  revision: { label: "Revision", dot: "#7c3aed", bg: "#EDE9FE", text: "#4C1D95" },
+  event:    { label: "Event",    dot: "#0891b2", bg: "#CFFAFE", text: "#164E63" },
 };
 
 export function CalendarScreen() {
@@ -403,8 +403,8 @@ export function CalendarScreen() {
                 {Array.from({ length: 6 }, (_, weekIdx) => (
                   <div
                     key={weekIdx}
-                    className="flex-1 grid grid-cols-7 gap-px bg-hairline min-h-0"
-                    style={{ background: undefined }}
+                    className="flex-1 grid grid-cols-7 gap-px min-h-0"
+                    style={{ background: WEEK_ROW_TINTS[weekIdx] }}
                   >
                     {currentMonthDays.slice(weekIdx * 7, weekIdx * 7 + 7).map((cd, dayIdx) => {
                       const isSelected = cd.dateStr === selectedDate;
