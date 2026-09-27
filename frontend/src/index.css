@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Global resets — applied before everything else */
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
 /*
   Concaretti â€” soft-clean, the way the app actually looked.
 */
@@ -535,6 +539,7 @@
     @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm
       font-semibold text-fg disabled:pointer-events-none disabled:opacity-40;
     min-height: 40px;
+    cursor: pointer;
     background: var(--color-obsidian);
     border: var(--border);
     border-radius: 999px;
