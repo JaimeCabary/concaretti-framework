@@ -357,17 +357,29 @@ export function MarketPanel() {
     return base;
   }, [selectedSym, liveQuotes]);
 
-  // Load chart data for selected ticker
+  // Map UI timeframe to Yahoo Finance range + interval params
+  const tfParams = useMemo(() => {
+    switch (timeframe) {
+      case "1D": return { range: "1d",  interval: "5m"  };
+      case "5D": return { range: "5d",  interval: "15m" };
+      case "1M": return { range: "1mo", interval: "1d"  };
+      case "6M": return { range: "6mo", interval: "1wk" };
+      case "1Y": return { range: "1y",  interval: "1wk" };
+      default:   return { range: "1mo", interval: "1d"  };
+    }
+  }, [timeframe]);
+
+  // Load chart data for selected ticker — uses real Yahoo Finance / CoinGecko / Binance
   const loadChart = useCallback(
     (sym: string) => {
+      // Show dummy data immediately while real data loads
       const meta = ASSET_REGISTRY[sym] || ASSET_REGISTRY["MSFT"];
       const currentPrice = liveQuotes[sym]?.price || meta.price;
-      const fallback = generateCandlesForSymbol(sym, currentPrice);
-      setChartData(fallback);
+      setChartData(generateCandlesForSymbol(sym, currentPrice));
 
-      // Fetch live chart from backend
+      // Fetch real OHLC from backend (Yahoo Finance → CoinGecko → Binance)
       void api
-        .marketChart(sym, "1mo", "1d")
+        .marketChart(sym, tfParams.range, tfParams.interval)
         .then((res: any) => {
           if (res && res.ok && res.chart?.chart?.result?.[0]) {
             const result = res.chart.chart.result[0];
@@ -389,7 +401,7 @@ export function MarketPanel() {
         })
         .catch(() => null);
     },
-    [liveQuotes]
+    [liveQuotes, tfParams]
   );
 
   // Fetch live quotes for all symbols
@@ -415,7 +427,7 @@ export function MarketPanel() {
     fetchAllQuotes();
     loadChart(selectedSym);
     void api.marketPortfolio().then(_setBook).catch(() => null);
-  }, [fetchAllQuotes, loadChart, selectedSym]);
+  }, [fetchAllQuotes, loadChart, selectedSym, timeframe]);
 
   const selectSymbol = (sym: string) => {
     setSelectedSym(sym);
