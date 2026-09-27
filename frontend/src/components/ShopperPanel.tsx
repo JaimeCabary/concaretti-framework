@@ -276,7 +276,7 @@ export function ShopperPanel() {
       <header className="shrink-0 border-b border-hairline px-5 py-3 flex flex-wrap items-center justify-between gap-3 bg-void">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="type-display text-xl sm:text-[22px]">SHOPPER</h1>
+            <h1 className="type-display text-2xl sm:text-[28px]">SHOPPER</h1>
             <span className="type-mono text-[10px] bg-shopper/30 text-fg px-2 py-0.5 border border-hairline font-semibold rounded uppercase">
               {filteredProducts.length} Items
             </span>
