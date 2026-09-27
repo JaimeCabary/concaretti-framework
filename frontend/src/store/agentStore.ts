@@ -97,6 +97,8 @@ interface AgentState {
     attachments?: AttachedFile[],
     isTemporary?: boolean,
   ) => Promise<void>;
+  osMode: boolean;
+  setOsMode: (mode: boolean | ((prev: boolean) => boolean)) => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   attachSession: (sessionId: string) => void;
@@ -148,7 +150,7 @@ function findLastAssistantIndex(turns: ChatTurn[]): number {
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
-  role: "public",
+  role: "student",
   userName: typeof window !== "undefined" ? localStorage.getItem("conca_user_name") || "" : "",
   agents: [],
   haloVisible: false,
@@ -175,6 +177,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   rotator: null,
   sessions: [],
   offline: false,
+  osMode: false,
+  setOsMode: (mode) =>
+    set((s) => ({
+      osMode: typeof mode === "function" ? mode(s.osMode) : mode,
+    })),
 
   emails: [],
   emailsLoading: false,
@@ -247,6 +254,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const currentSessionId = get().sessionId;
     const isNewSession = !currentSessionId;
+
+    // Screen navigation intents — switch screen immediately when user commands it
+    const screenIntents: Array<[RegExp, string]> = [
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(shopping|shopper|store|catalog|shop)\b/i, "shopper"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(calendar|schedule|timetable|events)\b/i, "calendar"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(email|emails|inbox|gmail|mail)\b/i, "email"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(telecom|sms|messages|texts|phone)\b/i, "telecom"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(market|stocks|crypto|trading|portfolio)\b/i, "market"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(diary|journal|workdiary|notes)\b/i, "diary"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(browser|web)\b/i, "browser"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(policy|rules|\.conca)\b/i, "policy"],
+      [/\b(open|show|go to|view|switch to|navigate to|launch)\s+(settings|accounts|setup)\b/i, "setup"],
+    ];
+    for (const [pattern, targetTab] of screenIntents) {
+      if (pattern.test(trimmed)) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("conca_switch_tab", { detail: targetTab }));
+        }
+        break;
+      }
+    }
 
     const userTurn: ChatTurn = {
       id: `user-${Date.now()}`,
@@ -358,11 +386,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         // Frames for a session we've since moved off are stale — drop them.
         if (event.session_id && event.session_id !== s.sessionId) return;
 
-        // Sentinel heartbeat & watch telemetry belongs strictly in Settings -> Logs, NEVER in user thought streams
-        const isSentinel =
-          /\[sentinel\b/i.test(String(event.text ?? event.message ?? "")) ||
-          event.agent === "sentinel";
-        if (isSentinel) {
+        // Sentinel heartbeat & connection noise belongs in logs/transport, NEVER in user thought streams
+        const eventMsg = String(event.text ?? event.message ?? "").trim();
+        const isNoise =
+          /\[sentinel\b/i.test(eventMsg) ||
+          event.agent === "sentinel" ||
+          /^(stream connected|connected|keepalive)$/i.test(eventMsg);
+        if (isNoise) {
           return;
         }
 
@@ -537,11 +567,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             patch.turns = activeTurns;
           } else {
             const curr = activeTurns[lastAsstIdx];
-            activeTurns[lastAsstIdx] = {
-              ...curr,
-              thoughts: [...(curr.thoughts || []), event],
-            };
-            patch.turns = activeTurns;
+            const existingThoughts = curr.thoughts || [];
+            const key = eventKey(event);
+            if (!existingThoughts.some((e) => eventKey(e) === key)) {
+              activeTurns[lastAsstIdx] = {
+                ...curr,
+                thoughts: [...existingThoughts, event],
+              };
+              patch.turns = activeTurns;
+            }
           }
         }
 

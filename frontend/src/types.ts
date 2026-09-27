@@ -246,6 +246,7 @@ export interface EmailMessage {
   subject: string;
   date: string;
   snippet: string;
+  body?: string;
   unread?: boolean;
 }
 

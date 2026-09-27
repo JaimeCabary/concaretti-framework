@@ -28,11 +28,6 @@ function ThoughtRow({ event }: { event: SseEvent }) {
 
   return (
     <div className="flex items-start gap-2 text-[12px] py-1 border-b border-hairline/20 last:border-0">
-      {event.model && (
-        <span className="font-mono text-[9px] uppercase px-1.5 py-0.5 bg-elevated rounded text-muted shrink-0 mt-0.5">
-          {event.model}
-        </span>
-      )}
       {agent && <AgentTag agent={agent} className="shrink-0" />}
       <p className={`whitespace-pre-wrap leading-relaxed ${isError ? "text-danger" : "text-dim"}`}>
         {body}
@@ -45,11 +40,16 @@ function TurnThoughts({ turn, isLatest = false }: { turn: ChatTurn; isLatest?: b
   const isRunning = turn.status === "running";
   const [open, setOpen] = useState(isRunning || isLatest);
 
-  // Filter out any background sentinel heartbeats from thought display
+  // Filter out any background sentinel heartbeats or stream connection artifacts
   const thoughts = (turn.thoughts || []).filter(
-    (t) =>
-      !/\[sentinel\b/i.test(String(t.text ?? t.message ?? "")) &&
-      t.agent !== "sentinel",
+    (t) => {
+      const msg = String(t.text ?? t.message ?? "");
+      return (
+        !/\[sentinel\b/i.test(msg) &&
+        !/^(stream connected|connected|keepalive)$/i.test(msg.trim()) &&
+        t.agent !== "sentinel"
+      );
+    },
   );
   const subtasks = turn.subtasks || [];
 
@@ -98,11 +98,11 @@ function TurnThoughts({ turn, isLatest = false }: { turn: ChatTurn; isLatest?: b
             </svg>
           )}
 
-          <span className="type-mono text-[11px] font-bold text-fg tracking-wide uppercase truncate">
+          <span className="text-[12px] font-semibold text-fg tracking-wide truncate">
             {isRunning ? "Council Deliberating & Executing" : "Thought Process"}
           </span>
 
-          <span className="type-mono text-[10px] text-muted truncate min-w-0">
+          <span className="text-[11px] text-muted truncate min-w-0">
             · {subtasks.length} step(s) {thoughts.length > 0 ? `· ${thoughts.length} trace(s)` : ""}
           </span>
         </div>
@@ -114,7 +114,7 @@ function TurnThoughts({ turn, isLatest = false }: { turn: ChatTurn; isLatest?: b
             ))}
           </div>
 
-          <span className="type-mono text-[9px] text-muted hidden sm:inline uppercase">
+          <span className="text-[11px] text-muted hidden sm:inline">
             {open ? "collapse" : "view"}
           </span>
         </div>
@@ -122,17 +122,61 @@ function TurnThoughts({ turn, isLatest = false }: { turn: ChatTurn; isLatest?: b
 
       {open && (
         <div className="p-3 bg-void/50 space-y-3">
+          {subtasks.length === 0 && thoughts.length === 0 && isRunning && (
+            <div className="space-y-2.5 py-1">
+              <div className="flex items-center justify-between text-[11px] text-fg font-medium">
+                <span className="flex items-center gap-2">
+                  <span className="size-2 rounded-full bg-[#00E5FF] animate-ping" />
+                  <span className="text-[#00E5FF] font-semibold">Council convened · Decomposing task & dispatching agents...</span>
+                </span>
+                <span className="text-[10px] text-muted font-medium">ACTIVE</span>
+              </div>
+              <div className="space-y-1.5 animate-pulse">
+                <div className="h-8 rounded-lg bg-obsidian/80 border border-hairline/60 flex items-center px-3 gap-2.5">
+                  <span className="size-2 rounded-full bg-blue-400 shrink-0 animate-pulse" />
+                  <span className="text-[11px] text-fg font-semibold">orchestrator</span>
+                  <div className="h-2.5 bg-fg/15 rounded w-1/3" />
+                  <div className="h-2 bg-fg/10 rounded w-1/4 ml-auto" />
+                </div>
+                <div className="h-8 rounded-lg bg-obsidian/80 border border-hairline/60 flex items-center px-3 gap-2.5">
+                  <span className="size-2 rounded-full bg-purple-400 shrink-0 animate-pulse" />
+                  <span className="text-[11px] text-fg font-semibold">rotator</span>
+                  <div className="h-2.5 bg-fg/15 rounded w-1/4" />
+                  <div className="h-2 bg-fg/10 rounded w-1/3 ml-auto" />
+                </div>
+                <div className="h-8 rounded-lg bg-obsidian/80 border border-hairline/60 flex items-center px-3 gap-2.5">
+                  <span className="size-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+                  <span className="text-[11px] text-fg font-semibold">policy</span>
+                  <div className="h-2.5 bg-fg/15 rounded w-2/5" />
+                  <div className="h-2 bg-fg/10 rounded w-1/5 ml-auto" />
+                </div>
+              </div>
+            </div>
+          )}
+
           {subtasks.length > 0 && (
             <div className="space-y-1.5 pb-2 border-b border-hairline/30">
-              <p className="type-mono text-[9px] uppercase tracking-wider text-muted">Execution Plan</p>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Execution Plan</p>
               <div className="space-y-1">
                 {subtasks.map((st) => (
-                  <div key={st.id} className="flex items-center justify-between gap-2 text-[11px] py-1 px-2 rounded bg-obsidian/40">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <AgentTag agent={st.agent} />
-                      <span className="truncate text-fg font-medium">{st.description || st.task_type}</span>
+                  <div key={st.id} className="space-y-1 py-1.5 px-2.5 rounded bg-obsidian/40 border border-hairline/40">
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AgentTag agent={st.agent} />
+                        <span className="truncate text-fg font-medium">{st.description || st.task_type}</span>
+                      </div>
+                      <StatusBadge status={st.status} />
                     </div>
-                    <StatusBadge status={st.status} />
+                    {st.error && (
+                      <p className="text-[10px] text-danger font-mono truncate px-1">
+                        ⚠ {st.error}
+                      </p>
+                    )}
+                    {st.blocked_reason && (
+                      <p className="text-[10px] text-amber-500 font-mono truncate px-1">
+                        🛡 {st.blocked_reason}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -141,7 +185,7 @@ function TurnThoughts({ turn, isLatest = false }: { turn: ChatTurn; isLatest?: b
 
           {thoughts.length > 0 && (
             <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
-              <p className="type-mono text-[9px] uppercase tracking-wider text-muted">Reasoning Trace</p>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Reasoning Trace</p>
               {thoughts.map((e, idx) => (
                 <ThoughtRow key={idx} event={e} />
               ))}
@@ -180,7 +224,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
       onClick={handleCopy}
       title={copied ? "Copied!" : label}
       aria-label={copied ? "Copied!" : label}
-      className="inline-flex items-center gap-1 text-[11px] font-mono text-muted hover:text-fg px-2 py-0.5 rounded hover:bg-elevated transition-colors cursor-pointer"
+      className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-fg px-1.5 py-0.5 rounded hover:bg-elevated transition-colors cursor-pointer"
     >
       {copied ? (
         <svg viewBox="0 0 24 24" className="size-3.5 text-ok transition-transform scale-110" fill="none" stroke="currentColor" strokeWidth={2.5}>
@@ -198,68 +242,62 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
 
 export function ConversationFeed({ role = "staff" }: { role?: Role }) {
   const turns = useAgentStore((s) => s.turns);
+  const running = useAgentStore((s) => s.running);
   const userName = useAgentStore((s) => s.userName) || "Operator";
   const bottomRef = useRef<HTMLDivElement>(null);
+  const latestPromptRef = useRef<HTMLDivElement>(null);
+
+  const scrollToCurrent = (behavior: ScrollBehavior = "smooth") => {
+    if (latestPromptRef.current) {
+      latestPromptRef.current.scrollIntoView({ behavior, block: "start" });
+    } else if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior, block: "end" });
+    }
+  };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns]);
+    scrollToCurrent("smooth");
+  }, [turns.length, running]);
 
   if (turns.length === 0) {
     return null;
   }
 
-  const allConversationText = turns
-    .map((t) => `${t.role === "user" ? userName : "CONCARETTI"}: ${t.content || ""}`)
-    .join("\n\n");
+  // Find the index of the last user turn
+  let lastUserIdx = -1;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
 
   return (
-    <div id="concaretti-conversation-feed" className="space-y-6 pb-6 select-text">
-      {/* Top Action Bar: Copy All & Select All */}
-      <div className="flex items-center justify-between px-2 pb-2 border-b border-hairline/40">
-        <span className="type-mono text-[10px] text-muted uppercase tracking-wider">
-          {turns.length} Turn{turns.length > 1 ? "s" : ""} Recorded
-        </span>
-        <div className="flex items-center gap-2">
-          <CopyButton text={allConversationText} label="Copy All" />
-          <button
-            type="button"
-            onClick={() => {
-              const feed = document.getElementById("concaretti-conversation-feed");
-              if (feed) {
-                const range = document.createRange();
-                range.selectNodeContents(feed);
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(range);
-              }
-            }}
-            className="inline-flex items-center gap-1 text-[11px] font-mono text-muted hover:text-fg px-2 py-0.5 rounded hover:bg-elevated transition-colors cursor-pointer"
-          >
-            <span className="text-[10px]">Select All</span>
-          </button>
-        </div>
-      </div>
+    <div id="concaretti-conversation-feed" className="space-y-6 pb-6 select-text relative">
 
       {turns.map((turn, index) => {
         const isUser = turn.role === "user";
 
         if (isUser) {
           return (
-            <div key={turn.id || index} className="flex flex-col items-end group">
+            <div
+              key={turn.id || index}
+              ref={index === lastUserIdx ? latestPromptRef : undefined}
+              className="flex flex-col items-end group scroll-mt-6"
+            >
               <div className="max-w-[85%] sm:max-w-[75%] rounded-2xl bg-elevated/90 border border-hairline px-4 py-3 text-fg shadow-xs">
-                <div className="flex items-center justify-between gap-3 mb-1 pb-1 border-b border-hairline/30">
-                  <div className="flex items-center gap-1.5">
-                    <span className="size-4 rounded-full bg-fg text-void text-[9px] font-bold flex items-center justify-center">
+                <div className="flex items-center justify-between gap-3 mb-1.5 pb-1.5 border-b border-hairline/30">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="size-4.5 rounded-full bg-fg text-void text-[10px] font-bold flex items-center justify-center shrink-0">
                       {userName.charAt(0).toUpperCase()}
                     </span>
-                    <span className="type-mono text-[10px] font-bold text-fg uppercase tracking-wider">
+                    <span className="text-[11px] font-semibold text-fg whitespace-nowrap truncate">
                       {userName}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <CopyButton text={turn.content} label="Copy" />
-                    <span className="type-mono text-[9px] text-muted">
+                    <span className="text-[11px] text-muted whitespace-nowrap shrink-0">
                       {relTime(turn.ts)}
                     </span>
                   </div>
@@ -278,7 +316,7 @@ export function ConversationFeed({ role = "staff" }: { role?: Role }) {
                         ) : (
                           <span>📄</span>
                         )}
-                        <span className="font-mono truncate max-w-[140px] text-dim">{att.name}</span>
+                        <span className="truncate max-w-[140px] text-dim">{att.name}</span>
                         <span className="text-muted text-[9px]">({Math.round(att.size / 1024)} KB)</span>
                       </div>
                     ))}
@@ -296,27 +334,76 @@ export function ConversationFeed({ role = "staff" }: { role?: Role }) {
         return (
           <div key={turn.id || index} className="flex flex-col items-start w-full group">
             <div className="w-full rounded-2xl bg-obsidian border border-hairline/70 p-4 shadow-sm">
-              {/* Header */}
-              <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-hairline/30">
-                <div className="flex items-center gap-2">
-                  <img src="/favicon.png" alt="" className="size-4.5 rounded" />
-                  <span className="type-display text-[13px] font-bold text-fg">
-                    Concaretti Council
-                  </span>
-                  <span className="type-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-council-soft/30 text-dim border border-hairline">
-                    {role.toUpperCase()}
-                  </span>
+                <div className="flex items-center justify-between gap-3 mb-2 pb-2 border-b border-hairline/30">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img src="/favicon.png" alt="" className="size-4.5 rounded shrink-0" />
+                    <span className="text-[13px] font-bold text-fg whitespace-nowrap tracking-tight">
+                      Concaretti Council
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap shrink-0">
+                      {role.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {hasContent && <CopyButton text={turn.content} label="Copy response" />}
+                    <span className="text-[11px] text-muted whitespace-nowrap shrink-0">
+                      {relTime(turn.ts)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {hasContent && <CopyButton text={turn.content} label="Copy response" />}
-                  <span className="type-mono text-[9px] text-muted">
-                    {relTime(turn.ts)}
-                  </span>
-                </div>
-              </div>
 
               {/* Differentiated Thought Process Accordion */}
               <TurnThoughts turn={turn} isLatest={index === turns.length - 1} />
+
+              {/* Turn Artifacts & Generated Art — Displayed First */}
+              {turn.artifacts && turn.artifacts.length > 0 && (
+                <div className="mb-3 pb-3 border-b border-hairline/40">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="type-mono text-[10px] text-muted uppercase tracking-wider font-bold">
+                      Generated Artifacts & Art ({turn.artifacts.length})
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    {turn.artifacts.map((art) => {
+                      const isImage = art.mime.startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)$/i.test(art.filename);
+                      const downloadUrl = `/api/artifacts/${art.id}/download`;
+
+                      return (
+                        <div key={art.id} className="rounded-xl border border-hairline bg-void overflow-hidden shadow-xs">
+                          {isImage && (
+                            <div className="relative bg-obsidian/30 max-h-[420px] overflow-hidden flex items-center justify-center p-2 border-b border-hairline">
+                              <img
+                                src={downloadUrl}
+                                alt={art.filename}
+                                className="max-h-[380px] w-auto max-w-full rounded-lg object-contain shadow-sm hover:scale-[1.01] transition-transform duration-200"
+                                loading="lazy"
+                              />
+                            </div>
+                          )}
+                          <div className="p-3 flex items-center justify-between gap-3 bg-elevated/30">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-mono text-[12px] font-bold text-fg truncate flex items-center gap-1.5">
+                                <span>{isImage ? "🎨" : "📄"}</span>
+                                <span>{art.filename}</span>
+                              </p>
+                              <p className="type-mono text-[10px] text-muted">{art.mime}</p>
+                            </div>
+                            <a
+                              href={downloadUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              download={art.filename}
+                              className="btn btn-primary text-[11px] px-3 py-1.5 font-bold shrink-0 rounded-lg shadow-2xs"
+                            >
+                              Open / Download
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Distinct Final Response */}
               {hasContent ? (
@@ -332,33 +419,6 @@ export function ConversationFeed({ role = "staff" }: { role?: Role }) {
                 </div>
               ) : (
                 <p className="text-[13px] text-muted italic">Run completed with no response summary.</p>
-              )}
-
-              {/* Turn Artifacts */}
-              {turn.artifacts && turn.artifacts.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-hairline/40">
-                  <p className="type-mono text-[10px] text-muted uppercase tracking-wider mb-2">
-                    Generated Artifacts ({turn.artifacts.length})
-                  </p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {turn.artifacts.map((art) => (
-                      <div key={art.id} className="panel p-2.5 bg-elevated/40 border border-hairline flex items-center justify-between">
-                        <div className="min-w-0 pr-2">
-                          <p className="font-mono text-[12px] font-bold text-fg truncate">{art.filename}</p>
-                          <p className="type-mono text-[9px] text-muted">{art.mime}</p>
-                        </div>
-                        <a
-                          href={`/api/artifacts/${art.id}/download`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn text-[11px] px-2.5 py-1 shrink-0"
-                        >
-                          Download
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               )}
             </div>
           </div>

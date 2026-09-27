@@ -106,6 +106,12 @@ const CATALOGUE: AgentMeta[] = [
     hint: "",
   },
   {
+    key: "desktop",
+    label: "Desktop OS",
+    blurb: "Automate desktop, launch apps, write code & run shortcuts (Ctrl+Shift+Space)",
+    hint: "Open ",
+  },
+  {
     key: "coding",
     label: "Codegen",
     blurb: "Multi-turn code generation",

@@ -286,11 +286,11 @@ export function StudentScreen() {
             <StudentIdle onPick={handlePickAgent} />
           )
         ) : tab === "shopper" ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <ShopperPanel />
           </div>
         ) : tab === "telecom" ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <TelecomInbox />
           </div>
         ) : tab === "diary" ? (
@@ -301,7 +301,7 @@ export function StudentScreen() {
           <div className="flex-1 overflow-y-auto p-6 max-w-5xl">
             <ConcaPanel />
           </div>
-        ) : tab === "settings" ? (
+        ) : tab === "settings" || (tab as string) === "setup" ? (
           <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
             <ConnectAccounts />
           </div>
@@ -314,15 +314,15 @@ export function StudentScreen() {
             <CalendarScreen />
           </div>
         ) : tab === "email" ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <EmailHub />
           </div>
         ) : tab === "browser" ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <BrowserPanel />
           </div>
         ) : tab === "market" ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <MarketPanel />
           </div>
         ) : (

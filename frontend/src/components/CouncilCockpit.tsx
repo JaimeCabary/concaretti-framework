@@ -30,6 +30,8 @@ export function CouncilCockpit({
   const rule0 = useAgentStore((s) => s.rule0Excluded);
   const lastError = useAgentStore((s) => s.lastError);
   const dismissError = useAgentStore((s) => s.dismissError);
+  const osMode = useAgentStore((s) => s.osMode);
+  const setOsMode = useAgentStore((s) => s.setOsMode);
 
   const [text, setText] = useState(prefill);
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
@@ -37,6 +39,7 @@ export function CouncilCockpit({
   const [dropNote, setDropNote] = useState<string | null>(null);
   const [isTemporary, setIsTemporary] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
+  const basePromptRef = useRef<string>("");
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -115,7 +118,10 @@ export function CouncilCockpit({
   const send = () => {
     const value = text.trim();
     if ((!value && attachments.length === 0) || running) return;
-    const promptToSend = value || "Please inspect the attached file(s).";
+    const basePrompt = value || (osMode ? "Inspect the active display and open windows." : "Please inspect the attached file(s).");
+    const promptToSend = osMode && !basePrompt.startsWith("[OS Agent Mode]")
+      ? `[OS Agent Mode] ${basePrompt}`
+      : basePrompt;
     void runPrompt(promptToSend, attachments, isTemporary);
     setText("");
     setAttachments([]);
@@ -190,6 +196,27 @@ export function CouncilCockpit({
           </div>
         )}
 
+        {/* OS Level Agent Mode Active Banner */}
+        {osMode && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 mb-2 mx-1 rounded-md bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-300 text-[11px] font-medium shadow-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[13px] animate-pulse">🖥️</span>
+              <span className="font-semibold tracking-wide">OS LEVEL AGENT MODE ARMED</span>
+              <span className="text-cyan-700/80 dark:text-cyan-300/80 truncate hidden md:inline">
+                · Commands will automate Windows OS (apps, windows, screen inspection, shell)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOsMode(false)}
+              className="text-cyan-600/70 hover:text-cyan-900 dark:text-cyan-400/70 dark:hover:text-cyan-100 cursor-pointer p-0.5 text-xs font-bold"
+              title="Disarm OS Agent Mode"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Textarea: Full width top input */}
         <textarea
           ref={box}
@@ -204,7 +231,13 @@ export function CouncilCockpit({
               send();
             }
           }}
-          placeholder={dropping ? "Drop files to attach to this prompt…" : placeholder}
+          placeholder={
+            dropping
+              ? "Drop files to attach to this prompt…"
+              : osMode
+              ? "OS Agent Mode Armed: Describe any Windows task (e.g. 'Launch Spotify', 'Inspect open windows', 'Create note.txt on desktop')..."
+              : placeholder
+          }
           className="w-full resize-none bg-transparent text-[15px] leading-relaxed
             text-fg placeholder:text-muted/70 focus:outline-none px-1 py-1 max-h-56 overflow-y-auto"
           style={{ minHeight: "46px" }}
@@ -253,29 +286,46 @@ export function CouncilCockpit({
 
             <button
               type="button"
-              onClick={() => {
-                void runPrompt(
-                  "Observe my active display and foreground window. Reason through what is visible, formulate hypothesis and next steps, and state clearly what you did and did not do."
-                );
-              }}
-              disabled={running}
-              className="px-2.5 py-1 rounded-full border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-[#00E5FF] text-[11px] font-medium flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 shadow-2xs cursor-pointer"
-              title="Observe Screen, Reason, and Proactively Assist"
+              onClick={() => setOsMode(!osMode)}
+              className={`size-8 shrink-0 cursor-pointer rounded-full border transition-all flex items-center justify-center hover:scale-105 active:scale-95 shadow-2xs ${
+                osMode
+                  ? "border-cyan-500 bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.4)] ring-1 ring-cyan-500/30"
+                  : "border-hairline/80 bg-elevated/50 hover:bg-elevated text-dim hover:text-fg"
+              }`}
+              title={
+                osMode
+                  ? "OS Level Agent Mode is Armed (Click to Disarm)"
+                  : "Arm OS Level Agent Mode (Commands will automate Windows OS)"
+              }
+              aria-label="Toggle OS Level Agent Mode"
             >
-              <span className="text-[12px]">👁️</span>
-              <span className="hidden sm:inline">Observe Screen</span>
+              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                <rect width="18" height="13" x="3" y="4" rx="2" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8m-4-4v4" />
+              </svg>
             </button>
 
             <span className="text-[11px] text-muted truncate hidden sm:inline select-none">
-              {dropNote ?? (running ? "Council is working · Press Esc to Stop" : "Enter ↵ to send · Shift+Enter for newline")}
+              {dropNote ?? (running ? "Council is working · Press Esc to Stop" : osMode ? "🖥️ OS Agent Mode Armed · Commands run on Windows desktop" : "Enter ↵ to send · Shift+Enter for newline")}
             </span>
           </div>
 
           {/* Right Actions: Modern Voice Controls + Send / Stop Button */}
           <div className="flex items-center gap-2 shrink-0">
             <MicButton
+              onRecordingStart={() => {
+                basePromptRef.current = text;
+              }}
+              onStreamText={(liveSaid) => {
+                const base = basePromptRef.current.trim();
+                setText(base ? `${base} ${liveSaid}` : liveSaid);
+                box.current?.focus();
+              }}
               onText={(said) => {
-                setText((t) => (t ? `${t.replace(/\s+$/, "")} ${said}` : said));
+                const base = basePromptRef.current.trim();
+                const combined = base ? `${base} ${said}` : said;
+                setText(combined);
+                basePromptRef.current = combined;
                 box.current?.focus();
               }}
             />

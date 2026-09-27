@@ -1,4 +1,4 @@
-﻿// sidecar.rs — spawn and manage the concaretti-backend sidecar process.
+// sidecar.rs — spawn and manage the concaretti-backend sidecar process.
 //
 // The sidecar is a PyInstaller-compiled binary placed in
 // src-tauri/binaries/concaretti-backend-<target-triple>.exe.
@@ -65,9 +65,10 @@ pub fn spawn_and_wait(app: &AppHandle) -> Result<(), String> {
 /// Kill the backend child process if one is stored in AppState.
 pub fn kill(app: &AppHandle) {
     let state = app.state::<AppState>();
-    if let Some(child) = state.backend.lock().unwrap().take() {
+    let child = state.backend.lock().unwrap().take();
+    if let Some(c) = child {
         // kill() is best-effort; ignore the result.
-        let _ = child.kill();
+        let _ = c.kill();
         println!("[sidecar] backend process terminated");
     }
 }

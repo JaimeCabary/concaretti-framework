@@ -23,7 +23,7 @@ mod sidecar;
 
 use sidecar::AppState;
 use std::sync::Mutex;
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{RunEvent, WindowEvent};
 
 fn main() {
     tauri::Builder::default()
@@ -53,7 +53,10 @@ fn main() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![capture::capture_screen])
+        .invoke_handler(tauri::generate_handler![
+            capture::capture_screen,
+            overlay::toggle_overlay
+        ])
         .build(tauri::generate_context!())
         .expect("error while building Concaretti")
         .run(|app, event| {

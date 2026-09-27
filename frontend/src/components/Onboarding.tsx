@@ -386,7 +386,7 @@ export function Onboarding() {
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="type-mono font-bold text-fg text-sm">
-                          Public
+                          Public (Guest / Pending Onboarding)
                         </h3>
                         {selectedRole === "public" && (
                           <span className="text-[10px] bg-[#68D391] text-black font-extrabold px-1.5 py-0.5 border border-black">
@@ -395,7 +395,7 @@ export function Onboarding() {
                         )}
                       </div>
                       <p className="mt-0.5 text-[12px] text-muted">
-                        Public research, guest overview and read-only surfaces.
+                        Exploration & research with pending zero-config user onboarding.
                       </p>
                     </div>
                     <div className={`size-5 rounded-full border-2 border-fg grid place-items-center shrink-0 ml-3 ${selectedRole === "public" ? "bg-fg text-void" : "bg-transparent"}`}>

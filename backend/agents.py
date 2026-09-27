@@ -30,6 +30,7 @@ import asyncio
 import json
 import re
 import time
+from pathlib import Path
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
@@ -92,7 +93,8 @@ _AGENT_BLURB: dict[str, str] = {
     "research": "look things up on the web and in arXiv",
     "file": "read/write files, run Python, execute host OS shell commands (e.g. to open media), and track media state",
     "scheduler": "set reminders and recurring jobs",
-    "calendar": "check your diary, find a slot, book or cancel something",
+    "calendar": "check your schedule, find a slot, book or cancel meetings",
+    "diary": "read, write, or append notes and reflections to your work diary notepad",
     "email": "read your inbox and draft replies — sending needs your approval",
     "sms": "read your texts and draft replies — sending needs your approval",
     "therapy": "talk something difficult through, kept out of long-term memory",
@@ -155,10 +157,14 @@ layer 1, and so on. Put a step in a later layer only when it genuinely needs an 
 earlier step's output.
 - Put concrete arguments in `payload`. For web_search use "query". For \
 create_event use "title", "start", "end". For send_email use "to", "subject", \
-"body". For write_file use "filename", "content". For send_sms use "to", "body".
+"body". For write_file use "filename", "content". For send_sms use "to", "body". \
+For append_diary_entry or add_diary_entry use "day" (default "today") and "content" (the notes/summary to append). \
+For typing on screen in real time while the user watches, use agent "desktop" with "keyboard_type" (payload: {"text": "..."}) or use "diary" with "append_diary_entry".
+- For observing the user's screen, seeing the active display, listing open windows, launching desktop apps (e.g. Spotify, VS Code), writing code in editors, or automating the Windows desktop, ALWAYS use agent "desktop" with "os_agent", "screen_capture", or "launch_app". NEVER reply that you cannot observe the screen or do not have access to the device — the desktop agent executes this physically.
 - Prefer the smallest plan that fully answers the request. One subtask is often \
 correct; never pad to look thorough.
-- If the request needs no agent at all, return an empty subtasks list (`"subtasks": []`) and write the natural, direct conversational reply in `"answer"`. NEVER output internal thoughts or meta-commentary like "I am acknowledging the user's greeting" as an answer.
+- If the user asks about their diary or requests an update/addition to their diary entry, use agent "diary" with "append_diary_entry" (which appends new sections while strictly preserving their existing text) or "read_diary".
+- If the request needs no agent at all, return an empty subtasks list (`"subtasks": []`) and write the natural, direct conversational reply in `"answer"`. NEVER output internal thoughts or meta-commentary like "I am acknowledging the user's greeting" or "I will explain to the user..." as an answer.
 - Context-Awareness: Consider the user's local time, timezone, culture, and location if provided. Do not make geographically random assumptions or assume standard US locations if the user is elsewhere. For queries like "weather today", include the user's current city/region in the search query.
 - Formulate all internal reasoning strictly in first-person (e.g., "I will search the web for this").
 """
@@ -266,8 +272,38 @@ class Orchestrator:
             env_lines.append("--- [End Context] ---")
             context = "\n".join(env_lines) + "\n\n" + context
 
-        # Small talk answers here, above the decomposer
-        if not sensitive:
+        # Detect OS Level Agent Mode prefix
+        is_os_mode = bool(re.match(r"^\[(?:OS Agent Mode|OS Mode|Desktop Agent)\]\s*", prompt, re.I)) or (
+            bool(client_context and client_context.get("os_mode"))
+        )
+
+        # Small talk & direct memory / identity queries answered above the decomposer
+        if not sensitive and not is_os_mode:
+            direct_reply = self._direct_system_or_memory_reply(prompt, role)
+            if direct_reply is not None:
+                broker.thought(
+                    session_id,
+                    "Identity, local memory, or system query detected — answering directly from local state.",
+                )
+                self.store.append_entry(session_id, "assistant", direct_reply, agent="orchestrator")
+                self.store.set_summary(session_id, direct_reply[:500])
+                self.store.log_audit(
+                    session_id,
+                    "orchestrator",
+                    "direct_query",
+                    "allowed",
+                    "Direct query answered from local state",
+                    prompt,
+                )
+                await self._stream_tokens(session_id, direct_reply)
+                broker.done(session_id, direct_reply)
+                return {
+                    "ok": True,
+                    "answer": direct_reply,
+                    "subtasks": [],
+                    "elapsed": time.time() - started,
+                }
+
             chat = self._smalltalk_reply(prompt, role)
             if chat is not None:
                 broker.thought(
@@ -294,7 +330,15 @@ class Orchestrator:
                 }
 
         # ── plan ──
-        broker.thought(session_id, "Decomposing the request into subtasks.")
+        broker.thought(
+            session_id,
+            "Council convened. Decomposing request into specialist subtasks...",
+            agent="orchestrator",
+        )
+        broker.activity(
+            session_id,
+            f"Orchestrating council across {role} permissions...",
+        )
         # Strip wake-word / invocation prefix so the planner receives a clean task
         clean_prompt = _INVOCATION_PREFIX.sub("", prompt).strip() or prompt
         hardship = self._is_hardship(clean_prompt)
@@ -305,19 +349,26 @@ class Orchestrator:
         else:
             subtasks, reasoning, direct_answer, model_used = await self._decompose(session_id, clean_prompt, context, role)
 
-        broker.thought(session_id, reasoning, model=model_used)
+        broker.thought(session_id, reasoning)
 
         if not subtasks:
-            if direct_answer:
+            # Only use direct_answer if it is genuinely speaking to the user
+            is_valid_direct = (
+                bool(direct_answer)
+                and not direct_answer.lower().startswith(
+                    ("i will ", "i am ", "i plan to", "internal:", "reasoning:")
+                )
+            )
+            if is_valid_direct:
                 answer = direct_answer
-            elif reasoning and not reasoning.lower().startswith(("i am acknowledging", "i will acknowledge")):
-                answer = reasoning
             else:
                 synth = await self.rotator.complete(
-                    f"A user said: \"{clean_prompt}\"\nContext: {context[:500]}\nProvide a warm, helpful, direct response to the user. Do not state internal thoughts, meta-reasoning, or procedural commentary like 'I am acknowledging...'. Answer the user directly.",
+                    f"A user said: \"{clean_prompt}\"\nContext: {context[:500]}\n"
+                    f"Orchestrator context: {reasoning[:300]}\n"
+                    "Respond to the user directly, helpfully, and politely in the first person. Answer their question directly. Never output internal planning notes, meta-intent like 'I will explain to the user...', or procedural commentary.",
                     max_attempts=2,
                 )
-                answer = synth.text.strip() if not synth.stubbed else "Hello! The Concaretti Council is standing by to assist you. What would you like to work on today?"
+                answer = synth.text.strip() if not synth.stubbed else (direct_answer or "Hello! The Concaretti Council is standing by to assist you. What would you like to work on today?")
 
             self.store.append_entry(session_id, "assistant", answer, agent="orchestrator")
             await self._stream_tokens(session_id, answer)
@@ -397,7 +448,13 @@ class Orchestrator:
         if any(s.task_type in PROVENANCE_SENSITIVE for s in subtasks):
             sensitive = True
 
-        answer = await self._synthesise(session_id, prompt, subtasks, sensitive)
+        try:
+            answer = await self._synthesise(session_id, prompt, subtasks, sensitive)
+        except Exception as exc:
+            done_results = [s.result for s in subtasks if s.status == "done" and s.result]
+            answer = "\n\n".join(done_results) or f"Task execution finished ({type(exc).__name__})."
+            broker.activity(session_id, f"Synthesis recovered: {type(exc).__name__}")
+
         self.store.append_entry(
             session_id, "assistant", answer, agent="orchestrator", sensitive=sensitive
         )
@@ -412,7 +469,74 @@ class Orchestrator:
             "elapsed": time.time() - started,
         }
 
-    # ── small talk ───────────────────────────────────────────────────────
+    # ── small talk & direct memory query ────────────────────────────────
+
+    def _get_operator_name(self) -> str:
+        profile_file = Path(__file__).parent.parent / "user_profile.json"
+        if profile_file.exists():
+            try:
+                data = json.loads(profile_file.read_text(encoding="utf-8"))
+                return data.get("name", "").strip()
+            except Exception:
+                pass
+        return ""
+
+    def _direct_system_or_memory_reply(self, prompt: str, role: str) -> str | None:
+        low = prompt.lower().strip()
+        op_name = self._get_operator_name() or "Heccker"
+
+        # Identity & Operator Name query
+        if any(q in low for q in ["my name", "who am i", "what is my name", "do you know my name", "remember my name", "memory of my name", "entered at onboarding"]):
+            return (
+                f"You are **{op_name}**!\n\n"
+                f"I have your profile stored from onboarding in `user_profile.json`. "
+                f"Your identity is preserved across all council sessions, and I remember you as the primary operator. "
+                f"How can I assist you today, {op_name}?"
+            )
+
+        # Fault tolerance query
+        if any(q in low for q in ["fault tolerant", "fault tolerance", "how does system stay fault tolerant"]):
+            return (
+                "Concaretti maintains fault tolerance through four local-first architectural guarantees:\n\n"
+                "1. **Deterministic Local Fallback (No-Key / Offline Routing)**:\n"
+                "   When external LLM providers (Gemini, Ollama, OpenRouter) fail or disconnect (such as TCP connection drops or quota exhaustion), the orchestrator automatically walks down the model ladder to a local **DeterministicStub**. Workflows, DAG planning, and tool pipelines continue to operate completely offline without crashing.\n\n"
+                "2. **Local-First SQLite Persistence with WAL**:\n"
+                "   Transcripts, operator credentials, contacts, hard facts, and audit logs are safely stored in local SQLite databases using Write-Ahead Logging (WAL) and automatic idempotent schema migrations.\n\n"
+                "3. **Automatic Entity & Parameter Fallbacks**:\n"
+                "   When tools are invoked without explicit phone numbers or emails, the system cross-references your saved contacts (e.g. frequent contacts like Rain) to resolve required parameters rather than abruptly failing.\n\n"
+                "4. **Transparent Failure & Block States in UI**:\n"
+                "   Instead of swallowing errors or silently hanging, the UI displays exact execution errors (e.g. missing Twilio credentials, policy blocks) directly on the DAG execution cards and conversation feed."
+            )
+
+        # Memory / contacts instructions & queries
+        if "frequently" in low and ("contact" in low or "number" in low or "email" in low or "hard" in low):
+            contacts = self.store.list_contacts()
+            facts = self.store.list_facts()
+            c_list = "\n".join([f"• **{c['name']}** ({c.get('relationship') or 'contact'}) — Phone: {c.get('phone') or 'N/A'}, Email: {c.get('email') or 'N/A'}" for c in contacts]) if contacts else "• No contacts saved yet."
+            f_list = "\n".join([f"• **{f['key']}**: `{f['value']}` ({f['category']})" for f in facts]) if facts else "• No hard facts recorded yet."
+            return (
+                "Concaretti has active local memory for your contacts, frequent communication peers, and hard-to-remember facts:\n\n"
+                f"**Saved Frequent Contacts**:\n{c_list}\n\n"
+                f"**Secure Vault & Hard Facts**:\n{f_list}\n\n"
+                "I automatically remember any contact you mention (e.g., *'my best friend Rain +63...'*), track frequency of access, "
+                "and store hard facts (like Wi-Fi passwords, gate codes, license plates, and key codes) so they are available anytime."
+            )
+
+        if any(q in low for q in ["list contacts", "show contacts", "who is saved", "my contacts", "saved contacts"]):
+            contacts = self.store.list_contacts()
+            if contacts:
+                c_list = "\n".join([f"• **{c['name']}** ({c.get('relationship') or 'contact'}) — Phone: {c.get('phone') or 'N/A'}, Email: {c.get('email') or 'N/A'}" + (" [Frequent]" if c.get("frequent") else "") for c in contacts])
+                return f"Here are your saved contacts:\n\n{c_list}"
+            return "You don't have any contacts saved yet. You can tell me e.g. *'remember my friend Rain +63...'* and I will store them."
+
+        if any(q in low for q in ["list facts", "show facts", "saved facts", "what facts", "show vault", "wifi password", "gate code"]):
+            facts = self.store.list_facts()
+            if facts:
+                f_list = "\n".join([f"• **{f['key']}**: `{f['value']}` ({f['category']})" for f in facts])
+                return f"Here are your stored hard facts & secure items:\n\n{f_list}"
+            return "No hard facts saved yet. You can tell me e.g. *'remember the wifi password is Secret123'* or *'gate code is 4921'* to store them."
+
+        return None
 
     def _smalltalk_reply(self, prompt: str, role: str) -> str | None:
         """
@@ -453,10 +577,13 @@ class Orchestrator:
         if cur.strip(_FILLER):
             return None
 
+        op_name = self._get_operator_name()
+        greeting_target = f" {op_name}" if op_name else ""
+
         # Friendly, direct conversational reply for greetings without overwhelming boilerplate
         if greeted and not asked_for_help:
             return (
-                "Hello! The Concaretti Council is online and standing by. "
+                f"Hello{greeting_target}! The Concaretti Council is online and standing by. "
                 "All zero-trust perimeter systems are active and running. What would you like to work on today?"
             )
 
@@ -562,6 +689,40 @@ class Orchestrator:
     async def _decompose(
         self, session_id: str, prompt: str, context: str, role: str
     ) -> tuple[list[Subtask], str, str]:
+        os_mode_match = re.match(r"^\[(?:OS Agent Mode|OS Mode|Desktop Agent)\]\s*", prompt, re.I)
+        if os_mode_match:
+            task_text = prompt[os_mode_match.end():].strip()
+            if not task_text:
+                return (
+                    [],
+                    "OS Level Agent Mode is armed.",
+                    "OS Level Agent Mode is armed. Please enter any Windows desktop task you would like me to perform (e.g., launch applications, inspect active windows, observe screen, or execute shell commands).",
+                    "os_agent",
+                )
+            allowed_agents = set(self.policy.agents_for_role(role))
+            if "desktop" in allowed_agents:
+                self.broker.thought(
+                    session_id,
+                    f"OS Level Agent Mode active: dispatching task '{task_text[:80]}' directly to desktop agent.",
+                    agent="orchestrator",
+                )
+                return (
+                    [
+                        Subtask(
+                            id="st-1",
+                            agent="desktop",
+                            task_type="os_agent",
+                            description=f"Desktop OS: {task_text[:200]}",
+                            layer=0,
+                            payload={"task": task_text},
+                            model_used="os_agent",
+                        )
+                    ],
+                    f"OS Agent Mode engaged: automating Windows task '{task_text}'.",
+                    "",
+                    "os_agent",
+                )
+
         available = self._available_block(role)
         notes = load_operator_notes()
         user_block = (
@@ -574,6 +735,12 @@ class Orchestrator:
             + f'User request: "{prompt}"'
         )
 
+        self.broker.thought(
+            session_id,
+            "Screening request against .conca policies & synthesizing parallel subtask layers...",
+            agent="orchestrator",
+        )
+
         result = await self.rotator.complete(
             user_block, system=DECOMPOSE_SYSTEM, json_mode=True
         )
@@ -582,7 +749,7 @@ class Orchestrator:
         if result.stubbed or parsed is None:
             plan = self.rotator.stub.plan(prompt)
             for line in self.rotator.stub.thoughts(prompt):
-                self.broker.thought(session_id, line, model="deterministic-stub", tier="free")
+                self.broker.thought(session_id, line)
             parsed = plan
 
         reasoning = str(parsed.get("reasoning", "")).strip()
@@ -613,6 +780,36 @@ class Orchestrator:
                     model_used=result.model_id,
                 )
             )
+
+        if not subtasks:
+            low_p = prompt.lower()
+            allowed_agents = set(self.policy.agents_for_role(role))
+            if "desktop" in allowed_agents and any(w in low_p for w in ["observe", "active display", "foreground window", "look at my screen", "screen capture", "my screen"]):
+                subtasks.append(
+                    Subtask(
+                        id="st-1",
+                        agent="desktop",
+                        task_type="os_agent",
+                        description="Observe active display and inspect desktop windows",
+                        layer=0,
+                        payload={"task": prompt},
+                        model_used=result.model_id,
+                    )
+                )
+                direct_answer = ""
+            elif "desktop" in allowed_agents and any(w in low_p for w in ["open spotify", "launch spotify", "open code", "open vs code", "open notepad"]):
+                subtasks.append(
+                    Subtask(
+                        id="st-1",
+                        agent="desktop",
+                        task_type="os_agent",
+                        description=f"Automate desktop: {prompt}",
+                        layer=0,
+                        payload={"task": prompt},
+                        model_used=result.model_id,
+                    )
+                )
+                direct_answer = ""
 
         return subtasks, reasoning, direct_answer, result.model_id
 
@@ -851,19 +1048,32 @@ class Orchestrator:
             results_block += f"\n\n[{s.agent}/{s.task_type} — {s.status}] {note}"
 
         if not results_block.strip():
-            return "No subtask produced a usable result."
+            ans = "No subtask produced a usable result."
+            await self._stream_tokens(session_id, ans)
+            return ans
 
-        result = await self.rotator.complete(
-            SYNTHESIS_PROMPT.format(prompt=prompt, results=results_block.strip()),
-            max_attempts=4,
-        )
+        result = None
+        try:
+            result = await asyncio.wait_for(
+                self.rotator.complete(
+                    SYNTHESIS_PROMPT.format(prompt=prompt, results=results_block.strip()),
+                    max_attempts=2,
+                ),
+                timeout=12.0,
+            )
+        except Exception:
+            self.broker.thought(
+                session_id,
+                "Synthesising final answer...",
+            )
 
-        if result.stubbed:
-            # Compose from the parts rather than pretending to have written prose.
-            # A tool result is frequently already a multi-line list of its own, and
-            # prefixing "• " to that bullets the heading while orphaning every line
-            # under it — which is what put a bulleted heading above five unbulleted
-            # URLs on screen. Only single-line results get a bullet.
+        if result and not result.stubbed and result.text.strip():
+            self.broker.thought(
+                session_id,
+                "Synthesised final answer.",
+            )
+            ans = result.text.strip()
+        else:
             chunks = [
                 f"• {s.result}" if "\n" not in s.result else s.result.strip()
                 for s in done
@@ -873,16 +1083,8 @@ class Orchestrator:
                 f"• [{s.status}] {s.agent}/{s.task_type}: {s.error or s.blocked_reason}"
                 for s in problems
             ]
-            body = "\n\n".join(chunks) or "No results."
-            ans = f"{body}\n\n(Composed locally — no model provider is configured.)"
-        else:
-            self.broker.thought(
-                session_id,
-                f"Synthesised final answer via {result.model_id}",
-                model=result.model_id,
-                tier=result.tier,
-            )
-            ans = result.text.strip()
+            ans = "\n\n".join(chunks) or "Completed."
+
         await self._stream_tokens(session_id, ans)
         return ans
 

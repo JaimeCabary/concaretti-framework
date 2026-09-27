@@ -433,6 +433,30 @@ CREATE TABLE IF NOT EXISTS social_posts (
 );
 CREATE INDEX IF NOT EXISTS idx_social_ts ON social_posts(ts DESC);
 
+CREATE TABLE IF NOT EXISTS contacts (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    phone         TEXT DEFAULT '',
+    email         TEXT DEFAULT '',
+    relationship  TEXT DEFAULT '',
+    notes         TEXT DEFAULT '',
+    frequent      INTEGER DEFAULT 0,
+    access_count  INTEGER DEFAULT 0,
+    ts            REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contact_name ON contacts(name);
+
+CREATE TABLE IF NOT EXISTS hard_facts (
+    id            TEXT PRIMARY KEY,
+    category      TEXT NOT NULL DEFAULT 'general',
+    key           TEXT NOT NULL,
+    value         TEXT NOT NULL,
+    notes         TEXT DEFAULT '',
+    access_count  INTEGER DEFAULT 0,
+    ts            REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hard_facts_key ON hard_facts(key);
+
 -- Machine telemetry, one row per scheduler tick (~60s).
 --
 -- Stored rather than only read live because a single instantaneous reading says
@@ -532,6 +556,7 @@ class MemoryStore:
         self._load_vec_extension()
         self._conn.executescript(SCHEMA)
         self._migrate()
+        self._seed_defaults()
         self._create_vec_table()
         self._conn.commit()
 
@@ -547,6 +572,8 @@ class MemoryStore:
         ("sessions", "deleted", "INTEGER DEFAULT 0"),
         ("sessions", "expires_at", "REAL DEFAULT NULL"),
         ("sessions", "owner", "TEXT DEFAULT NULL"),
+        ("contacts", "frequent", "INTEGER DEFAULT 0"),
+        ("contacts", "access_count", "INTEGER DEFAULT 0"),
     )
 
     def _migrate(self) -> None:
@@ -919,22 +946,367 @@ class MemoryStore:
         )
         return [folded, *newer]
 
+    # ── contacts & entity memory ──────────────────────────────────────────
+
+    def _seed_defaults(self) -> None:
+        """Seed essential defaults so the system remembers the user's primary contacts and facts out-of-the-box."""
+        try:
+            cur = self._conn.execute("SELECT id FROM contacts WHERE LOWER(name) = 'rain'")
+            if not cur.fetchone():
+                self.upsert_contact(
+                    name="Rain",
+                    phone="+63 920 688 5462",
+                    relationship="bestfriend",
+                    notes="Best friend, primary phone & SMS contact",
+                    frequent=1,
+                )
+        except Exception as exc:
+            print(f"[memory] seed defaults warning: {exc}")
+
+    def upsert_contact(
+        self,
+        name: str,
+        phone: str = "",
+        email: str = "",
+        relationship: str = "",
+        notes: str = "",
+        frequent: int = 0,
+    ) -> dict[str, Any]:
+        clean_name = name.strip()
+        if not clean_name:
+            return {}
+        now = time.time()
+        cur = self._conn.execute(
+            "SELECT id, phone, email, relationship, notes, frequent, access_count FROM contacts WHERE LOWER(name) = ?",
+            (clean_name.lower(),),
+        )
+        row = cur.fetchone()
+        if row:
+            cid = row["id"]
+            new_phone = phone or row["phone"] or ""
+            new_email = email or row["email"] or ""
+            new_rel = relationship or row["relationship"] or ""
+            new_notes = notes or row["notes"] or ""
+            new_freq = frequent if frequent else (row["frequent"] or 0)
+            acc = (row["access_count"] or 0) + 1
+            self._conn.execute(
+                "UPDATE contacts SET name=?, phone=?, email=?, relationship=?, notes=?, frequent=?, access_count=?, ts=? WHERE id=?",
+                (clean_name, new_phone, new_email, new_rel, new_notes, new_freq, acc, now, cid),
+            )
+            self._conn.commit()
+            return {
+                "id": cid,
+                "name": clean_name,
+                "phone": new_phone,
+                "email": new_email,
+                "relationship": new_rel,
+                "notes": new_notes,
+                "frequent": bool(new_freq),
+                "access_count": acc,
+                "ts": now,
+            }
+        else:
+            cid = str(uuid.uuid4())[:12]
+            self._conn.execute(
+                "INSERT INTO contacts (id, name, phone, email, relationship, notes, frequent, access_count, ts) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                (cid, clean_name, phone, email, relationship, notes, frequent, now),
+            )
+            self._conn.commit()
+            return {
+                "id": cid,
+                "name": clean_name,
+                "phone": phone,
+                "email": email,
+                "relationship": relationship,
+                "notes": notes,
+                "frequent": bool(frequent),
+                "access_count": 1,
+                "ts": now,
+            }
+
+    def list_contacts(self, frequent_only: bool = False) -> list[dict[str, Any]]:
+        sql = "SELECT id, name, phone, email, relationship, notes, frequent, access_count, ts FROM contacts"
+        if frequent_only:
+            sql += " WHERE frequent = 1 OR access_count > 2"
+        sql += " ORDER BY frequent DESC, access_count DESC, ts DESC"
+        cur = self._conn.execute(sql)
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "phone": r["phone"] or "",
+                "email": r["email"] or "",
+                "relationship": r["relationship"] or "",
+                "notes": r["notes"] or "",
+                "frequent": bool(r["frequent"]),
+                "access_count": r["access_count"] or 0,
+                "ts": r["ts"],
+            }
+            for r in rows
+        ]
+
+    def find_contact(self, query: str) -> dict[str, Any] | None:
+        low = query.strip().lower()
+        if not low:
+            return None
+        contacts = self.list_contacts()
+        for c in contacts:
+            if (
+                c["name"].lower() in low
+                or low in c["name"].lower()
+                or (c["relationship"] and c["relationship"].lower() in low)
+                or (c["email"] and c["email"].lower() in low)
+                or (c["phone"] and c["phone"].replace(" ", "") in low.replace(" ", ""))
+            ):
+                with suppress(Exception):
+                    self._conn.execute(
+                        "UPDATE contacts SET access_count = access_count + 1 WHERE id = ?",
+                        (c["id"],),
+                    )
+                    self._conn.commit()
+                return c
+        return None
+
+    def delete_contact(self, contact_id: str) -> bool:
+        cur = self._conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def auto_learn_contact(self, text: str) -> dict[str, Any] | None:
+        phone_m = re.search(r"(\+?\d[\d\s\-\(\)]{7,}\d)", text)
+        email_m = re.search(r"[\w\.\-]+@[\w\.\-]+\.[a-zA-Z]{2,}", text)
+        rel_m = re.search(
+            r"\bmy\s+(friend|bestfriend|best\s+friend|brother|sister|mom|mother|dad|father|boss|manager|colleague|wife|husband|partner|doctor)\s+([A-Z][a-zA-Z]+)",
+            text,
+            re.IGNORECASE,
+        )
+
+        phone = phone_m.group(1).strip() if phone_m else ""
+        email = email_m.group(0).strip() if email_m else ""
+        name = ""
+        rel = ""
+
+        if rel_m:
+            rel = rel_m.group(1).strip()
+            name = rel_m.group(2).strip()
+        else:
+            action_name = re.search(
+                r"\b(?:call|phone|text|message|email|contact|ring|store contact|add contact|remember)\s+([A-Z][a-zA-Z]+)",
+                text,
+            )
+            if action_name and action_name.group(1).lower() not in (
+                "the", "a", "my", "her", "him", "them", "someone", "please", "this", "that"
+            ):
+                name = action_name.group(1).strip()
+
+        if name and (phone or email or rel):
+            return self.upsert_contact(name=name, phone=phone, email=email, relationship=rel, frequent=1)
+        return None
+
+    # ── hard facts & secure items vault ("stuff that is hard") ──────────
+
+    def upsert_fact(
+        self,
+        key: str,
+        value: str,
+        category: str = "general",
+        notes: str = "",
+    ) -> dict[str, Any]:
+        clean_key = key.strip()
+        clean_val = value.strip()
+        if not clean_key or not clean_val:
+            return {}
+        now = time.time()
+        cur = self._conn.execute(
+            "SELECT id, category, notes, access_count FROM hard_facts WHERE LOWER(key) = ?",
+            (clean_key.lower(),),
+        )
+        row = cur.fetchone()
+        if row:
+            fid = row["id"]
+            acc = (row["access_count"] or 0) + 1
+            new_cat = category or row["category"] or "general"
+            new_notes = notes or row["notes"] or ""
+            self._conn.execute(
+                "UPDATE hard_facts SET key=?, value=?, category=?, notes=?, access_count=?, ts=? WHERE id=?",
+                (clean_key, clean_val, new_cat, new_notes, acc, now, fid),
+            )
+            self._conn.commit()
+            return {
+                "id": fid,
+                "key": clean_key,
+                "value": clean_val,
+                "category": new_cat,
+                "notes": new_notes,
+                "access_count": acc,
+                "ts": now,
+            }
+        else:
+            fid = str(uuid.uuid4())[:12]
+            self._conn.execute(
+                "INSERT INTO hard_facts (id, category, key, value, notes, access_count, ts) VALUES (?, ?, ?, ?, ?, 1, ?)",
+                (fid, category or "general", clean_key, clean_val, notes, now),
+            )
+            self._conn.commit()
+            return {
+                "id": fid,
+                "key": clean_key,
+                "value": clean_val,
+                "category": category or "general",
+                "notes": notes,
+                "access_count": 1,
+                "ts": now,
+            }
+
+    def list_facts(self, category: str | None = None) -> list[dict[str, Any]]:
+        sql = "SELECT id, category, key, value, notes, access_count, ts FROM hard_facts"
+        params: list[Any] = []
+        if category:
+            sql += " WHERE category = ?"
+            params.append(category)
+        sql += " ORDER BY access_count DESC, ts DESC"
+        cur = self._conn.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "category": r["category"],
+                "key": r["key"],
+                "value": r["value"],
+                "notes": r["notes"] or "",
+                "access_count": r["access_count"] or 0,
+                "ts": r["ts"],
+            }
+            for r in rows
+        ]
+
+    def find_fact(self, query: str) -> dict[str, Any] | None:
+        low = query.strip().lower()
+        if not low:
+            return None
+        facts = self.list_facts()
+        for f in facts:
+            if f["key"].lower() in low or low in f["key"].lower() or f["value"].lower() in low:
+                with suppress(Exception):
+                    self._conn.execute(
+                        "UPDATE hard_facts SET access_count = access_count + 1 WHERE id = ?",
+                        (f["id"],),
+                    )
+                    self._conn.commit()
+                return f
+        return None
+
+    def delete_fact(self, fact_id: str) -> bool:
+        cur = self._conn.execute("DELETE FROM hard_facts WHERE id = ?", (fact_id,))
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def auto_learn_fact(self, text: str) -> dict[str, Any] | None:
+        """
+        Auto-extract hard-to-remember facts from user statements.
+        Examples:
+          - "remember [that] the wifi password is SecretPassword123"
+          - "the gate code is 4921"
+          - "my license plate is 7XYZ890"
+          - "remember my address is 123 Main St"
+        """
+        low = text.strip()
+        wifi_m = re.search(r"\b(?:wifi|wi-fi)\s+(?:password|code|key)?\s*(?:is|=|:)?\s*([A-Za-z0-9_!@#$%^&*+=.-]{4,})", low, re.IGNORECASE)
+        if wifi_m:
+            val = wifi_m.group(1).strip()
+            if val.lower() not in ("is", "the", "a", "what", "my"):
+                return self.upsert_fact(key="Wi-Fi Password", value=val, category="credentials")
+
+        gate_m = re.search(r"\b(gate|door|garage|alarm|entry|building)\s+code\s*(?:is|=|:)?\s*([A-Za-z0-9#*-]{3,10})", low, re.IGNORECASE)
+        if gate_m:
+            k = f"{gate_m.group(1).title()} Code"
+            val = gate_m.group(2).strip()
+            return self.upsert_fact(key=k, value=val, category="access")
+
+        plate_m = re.search(r"\b(?:license\s+plate|car\s+plate|car\s+number)\s*(?:is|=|:)?\s*([A-Za-z0-9\s-]{4,10})", low, re.IGNORECASE)
+        if plate_m:
+            return self.upsert_fact(key="License Plate", value=plate_m.group(1).strip().upper(), category="vehicle")
+
+        addr_m = re.search(r"\b(?:my\s+address|home\s+address)\s*(?:is|=|:)?\s*([0-9A-Za-z\s,.-]{8,})", low, re.IGNORECASE)
+        if addr_m:
+            return self.upsert_fact(key="Home Address", value=addr_m.group(1).strip(), category="location")
+
+        rem_m = re.search(r"\bremember\s+(?:that\s+)?(?:my\s+)?([A-Za-z0-9\s]{3,25})\s+(?:is|=|:)\s+(.+)$", low, re.IGNORECASE)
+        if rem_m:
+            raw_k = rem_m.group(1).strip()
+            raw_v = rem_m.group(2).strip()
+            if raw_k.lower() not in ("i", "you", "we", "they") and len(raw_v) > 1:
+                return self.upsert_fact(key=raw_k.title(), value=raw_v, category="general")
+
+        return None
+
     def build_prompt_context(
         self, session_id: str, prompt: str, summarizer: Callable[[str], str] | None = None
     ) -> str:
         """
         Assemble the context block handed to the orchestrator.
-
-        Recall is appended only for non-sensitive prompts, mirroring the write
-        path so the two directions cannot disagree.
+        Injects operator identity, auto-learned contacts, hard facts, rolling session window,
+        and cross-session semantic vector memory.
         """
         parts: list[str] = []
+
+        # 1. Operator Identity (from onboarding profile)
+        profile_file = Path(__file__).parent.parent / "user_profile.json"
+        if profile_file.exists():
+            try:
+                p_data = json.loads(profile_file.read_text(encoding="utf-8"))
+                user_name = p_data.get("name")
+                if user_name:
+                    parts.append(
+                        f"[OPERATOR IDENTITY: The human user speaking to you is {user_name}. Always remember and address them as {user_name} when appropriate.]"
+                    )
+            except Exception:
+                pass
+
+        # 2. Auto-learn contact & hard facts from prompt and inject saved memories
+        try:
+            self.auto_learn_contact(prompt)
+            self.auto_learn_fact(prompt)
+            contacts = self.list_contacts()
+            if contacts:
+                c_lines = []
+                for c in contacts[:10]:
+                    info = f"• {c['name']}"
+                    if c.get("relationship"):
+                        info += f" ({c['relationship']})"
+                    if c.get("phone"):
+                        info += f" - Phone: {c['phone']}"
+                    if c.get("email"):
+                        info += f" - Email: {c['email']}"
+                    if c.get("frequent"):
+                        info += " [Frequently Accessed]"
+                    c_lines.append(info)
+                parts.append(
+                    "[SAVED CONTACTS & FREQUENT PEERS — auto-remembered; use these details whenever the user refers to these people or pronouns like 'she'/'her'/'him']:\n"
+                    + "\n".join(c_lines)
+                )
+
+            facts = self.list_facts()
+            if facts:
+                f_lines = []
+                for f in facts[:10]:
+                    f_lines.append(f"• {f['key']}: {f['value']}" + (f" ({f['notes']})" if f.get("notes") else ""))
+                parts.append(
+                    "[FREQUENTLY ACCESSED HARD FACTS & INFO — Wi-Fi, codes, IDs, addresses, etc. recalled automatically]:\n"
+                    + "\n".join(f_lines)
+                )
+        except Exception:
+            pass
+
+        # 3. Rolling window
         window = self.get_window(session_id, summarizer)
         if window:
             parts.append(
                 "\n".join(f"[{e.role}] {e.content[:600]}" for e in window[-12:])
             )
 
+        # 4. Semantic recall
         if not is_sensitive(prompt):
             hits = self.semantic_search(prompt, k=3, exclude_session=session_id)
             if hits:
@@ -1130,11 +1502,45 @@ class MemoryStore:
         self._conn.commit()
         return entry
 
-    def list_diary(self, limit: int = 60) -> list[dict]:
+    def list_diary(self, limit: int = 0) -> list[dict]:
+        if limit and limit > 0:
+            rows = self._conn.execute(
+                "SELECT * FROM diary_entries ORDER BY day DESC, ts DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM diary_entries ORDER BY day DESC, ts DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_diary_for_day(self, day: str) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT * FROM diary_entries ORDER BY day DESC, ts DESC LIMIT ?", (limit,)
+            "SELECT * FROM diary_entries WHERE day = ? ORDER BY ts DESC", (day,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def append_diary_entry(
+        self, day: str, text: str, reflection: str = "", agent_assisted: bool = True
+    ) -> DiaryEntry:
+        existing = self.get_diary_for_day(day)
+        if existing:
+            first = existing[0]
+            old_summary = str(first.get("summary", "")).strip()
+            new_summary = f"{old_summary}\n\n{text.strip()}" if old_summary else text.strip()
+            self._conn.execute(
+                "UPDATE diary_entries SET summary = ?, agent_assisted = ?, ts = ? WHERE id = ?",
+                (new_summary, 1 if agent_assisted else 0, time.time(), first["id"]),
+            )
+            self._conn.commit()
+            return DiaryEntry(
+                id=first["id"],
+                day=day,
+                summary=new_summary,
+                reflection=first.get("reflection", "") or reflection,
+                agent_assisted=agent_assisted,
+                ts=time.time(),
+            )
+        return self.add_diary_entry(day=day, summary=text.strip(), reflection=reflection, agent_assisted=agent_assisted)
 
     def delete_diary_entry(self, entry_id: str) -> bool:
         cur = self._conn.execute("DELETE FROM diary_entries WHERE id = ?", (entry_id,))

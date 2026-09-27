@@ -48,30 +48,63 @@ function playChime() {
   }
 }
 
-export function MicButton({ onText }: { onText: (text: string) => void }) {
+export interface MicButtonProps {
+  onText: (text: string) => void;
+  onStreamText?: (text: string) => void;
+  onRecordingStart?: () => void;
+}
+
+export function MicButton({ onText, onStreamText, onRecordingStart }: MicButtonProps) {
   const ready = useAgentStore((s) => s.voiceReady);
 
   const [state, setState] = useState<"idle" | "recording" | "sending">("idle");
   const [secs, setSecs] = useState(0);
   const [err, setErr] = useState<string | null>(null);
-  const [wakeActive, setWakeActive] = useState(false);
+  const [wakeActive, setWakeActive] = useState(() => {
+    try {
+      const saved = localStorage.getItem("conca_wake_active");
+      return saved === null ? true : saved === "true";
+    } catch {
+      return true;
+    }
+  });
   const [toast, setToast] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0); // drives live volume bar
 
   const rec = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const stream = useRef<MediaStream | null>(null);
   const ticker = useRef<number | null>(null);
+  const animFrame = useRef<number | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const audioCtxRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const speechRec = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const liveDictateRec = useRef<any>(null);
+  const latestTranscriptRef = useRef<string>("");
 
   const teardown = () => {
     if (ticker.current !== null) {
       window.clearInterval(ticker.current);
       ticker.current = null;
     }
+    if (animFrame.current !== null) {
+      cancelAnimationFrame(animFrame.current);
+      animFrame.current = null;
+    }
+    if (audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close();
+      } catch {
+        /* ignore */
+      }
+      audioCtxRef.current = null;
+    }
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
     rec.current = null;
+    setAudioLevel(0);
     if (speechRec.current) {
       try {
         speechRec.current.stop();
@@ -80,6 +113,14 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
       }
       speechRec.current = null;
     }
+    if (liveDictateRec.current) {
+      try {
+        liveDictateRec.current.stop();
+      } catch {
+        /* ignore */
+      }
+      liveDictateRec.current = null;
+    }
   };
 
   useEffect(() => teardown, []);
@@ -87,7 +128,6 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
   // ── Global Wake Word SSE Trigger ──
   useEffect(() => {
     const onVoiceTrigger = () => {
-      // Play chime to acknowledge wake word, then start recording immediately
       playChime();
       setToast('✓ "Hey Concaretti" detected');
       setTimeout(() => setToast(null), 3000);
@@ -99,9 +139,17 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
     return () => window.removeEventListener("conca_voice_trigger", onVoiceTrigger);
   }, [state]);
 
-  // ── Wake Word Recognition Engine ──
+  // Check if running inside any desktop shell (Tauri, PyWebView, WebView2)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isDesktop = typeof window !== "undefined" && Boolean(
+    (window as any).__TAURI__ ||
+    (window as any).pywebview ||
+    (window as any).chrome?.webview
+  );
+
+  // ── Wake Word Engine ──
   useEffect(() => {
-    if (!wakeActive) {
+    if (!wakeActive || state === "recording" || state === "sending") {
       if (speechRec.current) {
         try {
           speechRec.current.stop();
@@ -113,8 +161,9 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
       return;
     }
 
+    // In standard browsers with working SpeechRecognition (desktop shells use MediaRecorder):
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SpeechAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechAPI = !isDesktop && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
     if (SpeechAPI) {
       try {
@@ -128,11 +177,27 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
           const results = e.results;
           if (!results || results.length === 0) return;
           const transcript = results[results.length - 1][0]?.transcript || "";
-          if (/\b(hey\s+)?concaretti\b/i.test(transcript)) {
+          
+          const match = transcript.match(
+            /\b(?:hey|hi|hello|yo|ok|okay)?\s*(?:concaretti|concarretti|conca\s*ready|con\s*karate|conca|conker|conquer|concrete|conchetti|council)\b(?:\s*(.*))?/i,
+          );
+          if (match) {
             playChime();
-            setToast('✓ "Hey Concaretti" detected');
-            onText(transcript.trim());
+            setToast('✓ "Hi Concaretti" listening…');
             setTimeout(() => setToast(null), 3000);
+
+            const trailing = (match[1] || "").trim();
+            if (trailing) {
+              onText(trailing);
+            } else {
+              try {
+                sr.stop();
+              } catch {
+                /* ignore */
+              }
+              speechRec.current = null;
+              void start();
+            }
           }
         };
 
@@ -141,7 +206,7 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
         };
 
         sr.onend = () => {
-          if (wakeActive) {
+          if (wakeActive && state === "idle") {
             try {
               sr.start();
             } catch {
@@ -167,20 +232,22 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
         speechRec.current = null;
       }
     };
-  }, [wakeActive, onText]);
+  }, [wakeActive, state, isDesktop, onText]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hasNativeSpeech = typeof window !== "undefined" && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
   const container = pickContainer();
 
   if (
-    !ready ||
-    container === null ||
+    (!ready && !hasNativeSpeech) ||
     typeof navigator === "undefined" ||
     typeof navigator.mediaDevices?.getUserMedia !== "function"
   ) {
     return null;
   }
 
-  const [mime, ext] = container;
+  const [mime, ext] = container || ["audio/webm", "webm"];
   const uploadType = mime.split(";")[0];
 
   const send = (clip: Blob) => {
@@ -197,7 +264,7 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
           playChime();
           onText(r.text);
         } else {
-          setErr("Nothing recognisable in that clip. Try again, closer to the mic.");
+          setErr("Nothing recognisable in that clip. Try speaking closer to the mic.");
         }
       })
       .catch((e: unknown) =>
@@ -207,21 +274,69 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
   };
 
   const stop = () => {
-    if (rec.current?.state === "recording") rec.current.stop();
-    if (ticker.current !== null) {
-      window.clearInterval(ticker.current);
-      ticker.current = null;
+    if (liveDictateRec.current) {
+      try {
+        liveDictateRec.current.stop();
+      } catch {
+        /* ignore */
+      }
+      liveDictateRec.current = null;
+    }
+    if (latestTranscriptRef.current.trim()) {
+      onText(latestTranscriptRef.current.trim());
+      latestTranscriptRef.current = "";
+    }
+    if (rec.current?.state === "recording") {
+      rec.current.stop();
+    } else {
+      teardown();
+      setState("idle");
     }
   };
 
-  const start = async () => {
-    setErr(null);
+  // Hardware MediaRecorder audio capture with live audio level meter
+  const startMediaRecorder = async () => {
     try {
       const media = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       stream.current = media;
       chunks.current = [];
+
+      // Connect Web Audio API to measure live mic volume in real time
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const actx = new AudioCtx();
+          audioCtxRef.current = actx;
+          const src = actx.createMediaStreamSource(media);
+          const analyser = actx.createAnalyser();
+          analyser.fftSize = 64;
+          analyser.smoothingTimeConstant = 0.5;
+          src.connect(analyser);
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const checkVolume = () => {
+            if (!stream.current) return;
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              sum += dataArray[i];
+            }
+            const avg = sum / dataArray.length;
+            setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+            animFrame.current = requestAnimationFrame(checkVolume);
+          };
+          animFrame.current = requestAnimationFrame(checkVolume);
+        }
+      } catch {
+        /* AudioContext failed, recording still works */
+      }
 
       const r = new MediaRecorder(media, { mimeType: mime });
       rec.current = r;
@@ -234,7 +349,7 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
         teardown();
         send(clip);
       };
-      r.start();
+      r.start(250);
 
       setSecs(0);
       setState("recording");
@@ -249,7 +364,7 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
       setState("idle");
       setErr(
         e instanceof Error && e.name === "NotAllowedError"
-          ? "Microphone blocked for this site. Allow it in browser permissions."
+          ? "Microphone access blocked. Allow mic in Windows Privacy settings."
           : e instanceof Error
             ? e.message
             : "Could not open microphone",
@@ -257,9 +372,101 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
     }
   };
 
+  const start = async () => {
+    setErr(null);
+    latestTranscriptRef.current = "";
+    onRecordingStart?.();
+
+    // In desktop webview (Tauri / PyWebView / Edge WebView2): webkitSpeechRecognition
+    // lacks Google Speech endpoints and throws 'network' error. Always use native hardware MediaRecorder!
+    if (isDesktop) {
+      await startMediaRecorder();
+      return;
+    }
+
+    // In standard browser (Chrome/Edge): try SpeechRecognition for live word-for-word streaming
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (SpeechAPI) {
+      try {
+        const sr = new SpeechAPI();
+        sr.continuous = true;
+        sr.interimResults = true;
+        sr.lang = "en-US";
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sr.onresult = (e: any) => {
+          let finalWords = "";
+          let interimWords = "";
+          for (let i = 0; i < e.results.length; ++i) {
+            const item = e.results[i];
+            const text = item[0]?.transcript || "";
+            if (item.isFinal) {
+              finalWords += text + " ";
+            } else {
+              interimWords += text;
+            }
+          }
+          const liveText = (finalWords + interimWords).trim();
+          if (liveText) {
+            latestTranscriptRef.current = liveText;
+            if (onStreamText) {
+              onStreamText(liveText);
+            } else {
+              onText(liveText);
+            }
+          }
+        };
+
+        sr.onerror = (e: any) => {
+          // If browser speech API hits network error or blocked, fall back immediately to hardware MediaRecorder
+          if (e.error === "network" || e.error === "audio-capture" || e.error === "not-allowed" || e.error === "service-not-allowed") {
+            try { sr.stop(); } catch {}
+            liveDictateRec.current = null;
+            setErr(null);
+            void startMediaRecorder();
+          } else if (e.error !== "no-speech") {
+            setErr(`Voice error: ${e.error}`);
+          }
+        };
+
+        sr.onend = () => {
+          if (latestTranscriptRef.current.trim()) {
+            onText(latestTranscriptRef.current.trim());
+            latestTranscriptRef.current = "";
+          }
+          setState("idle");
+        };
+
+        sr.start();
+        liveDictateRec.current = sr;
+        setState("recording");
+        setSecs(0);
+        const t0 = performance.now();
+        ticker.current = window.setInterval(() => {
+          const elapsed = Math.round((performance.now() - t0) / 1000);
+          setSecs(elapsed);
+          if (elapsed >= MAX_SECONDS) stop();
+        }, 1000);
+        return;
+      } catch {
+        /* fallback to MediaRecorder below */
+      }
+    }
+
+    // Default hardware recording fallback
+    await startMediaRecorder();
+  };
+
   // Trigger system push notification and floating non-disruptive toast on toggle
   const toggleWake = (active: boolean) => {
     setWakeActive(active);
+    try {
+      localStorage.setItem("conca_wake_active", String(active));
+    } catch {
+      /* ignore */
+    }
     if (active) {
       // 1. Native system push notification
       if (typeof window !== "undefined" && "Notification" in window) {
@@ -370,6 +577,10 @@ export function MicButton({ onText }: { onText: (text: string) => void }) {
             <>
               <span className="size-2 rounded-full bg-white animate-ping" />
               <span>Stop · {Math.max(0, MAX_SECONDS - secs)}s</span>
+              {/* Live volume bar */}
+              <span className="w-10 h-1 rounded-full bg-white/30 overflow-hidden shrink-0">
+                <span className="block h-full bg-white rounded-full transition-all duration-75" style={{ width: `${audioLevel}%` }} />
+              </span>
             </>
           ) : state === "sending" ? (
             <>

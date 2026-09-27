@@ -42,10 +42,8 @@ Role = Literal["public", "student", "staff"]
 VALID_ROLES: tuple[Role, ...] = ("public", "student", "staff")
 COOKIE_NAME = "conca_role"
 
-# Remote callers with no cookie are the public tier rather than rejected — that
-# tier is the "busy masses" surface and is meant to need no login. Its `.conca`
-# grant list is correspondingly minimal.
-DEFAULT_ROLE: Role = "public"
+# Remote callers with no cookie get student role rather than public
+DEFAULT_ROLE: Role = "student"
 
 # What a loopback caller gets. The operator of the machine is the owner of the
 # machine; see the module docstring.

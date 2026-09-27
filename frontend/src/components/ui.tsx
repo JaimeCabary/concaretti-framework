@@ -6,7 +6,7 @@
  * navigation than code.
  */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAgentStore } from "../store/agentStore";
 import type { SubtaskStatus } from "../types";
 
@@ -30,19 +30,10 @@ export function ConcarettiLogo({ size = 28 }: { size?: number }) {
       src="/favicon.png"
       width={size}
       height={size}
-      alt=""
-      aria-hidden
+      alt="Concaretti"
+      loading="lazy"
       decoding="async"
-      className="shrink-0"
-      onError={(e) => {
-        e.currentTarget.style.display = "none";
-      }}
-      style={{
-        inlineSize: size,
-        blockSize: size,
-        border: "2px solid var(--color-fg)",
-        borderRadius: 6,
-      }}
+      className="size-7 rounded"
     />
   );
 }
@@ -70,6 +61,8 @@ export function Panel({
   className = "",
   bodyClass = "",
   quiet = false,
+  collapsible = false,
+  defaultOpen = true,
 }: {
   title?: ReactNode;
   accent?: string;
@@ -83,36 +76,56 @@ export function Panel({
    * rather than being objects in their own right. See `.panel-quiet`.
    */
   quiet?: boolean;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
+
   return (
     <section
-      className={`panel ${quiet ? "panel-quiet" : ""} flex min-h-0 flex-col ${className}`}
+      className={`panel ${quiet ? "panel-quiet" : ""} ${className}`}
     >
       {title !== undefined && (
-        <header className="panel-head">
-          {/*
-            The accent is a swatch, not the title colour.
-
-            Every accent in this palette is a pastel fill; painting 13px text in
-            one puts it around 1.6:1 on white. The original app draws its panel
-            headings in black for the same reason and carries screen identity in
-            filled shapes, so the accent moves to a 12px square and the title
-            stays legible.
-          */}
-          <h2 className="type-display flex min-w-0 items-center gap-2 text-[14px]">
-            {accent && (
-              <span
-                aria-hidden
-                className="panel-swatch"
-                style={{ background: accent }}
-              />
+        <header
+          className={`panel-head ${collapsible ? "cursor-pointer select-none hover:bg-elevated/40 transition-colors" : ""}`}
+          onClick={collapsible ? () => setOpen(!open) : undefined}
+        >
+          <div className="flex items-center gap-2 shrink-0">
+            {collapsible && (
+              <svg
+                viewBox="0 0 24 24"
+                className={`size-3.5 text-muted transition-transform shrink-0 ${open ? "rotate-90" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+              </svg>
             )}
-            <span className="truncate">{title}</span>
-          </h2>
-          {actions}
+            <h2 className="type-display flex items-center gap-2 text-[14px] whitespace-nowrap">
+              {accent && (
+                <span
+                  aria-hidden
+                  className="panel-swatch shrink-0"
+                  style={{ background: accent }}
+                />
+              )}
+              <span>{title}</span>
+            </h2>
+          </div>
+          <div className="flex items-center gap-2 min-w-0 flex-wrap justify-end" onClick={(e) => e.stopPropagation()}>
+            {actions}
+            {collapsible && (
+              <span className="text-[11px] text-muted hover:text-fg font-medium shrink-0">
+                {open ? "Retract" : "Expand"}
+              </span>
+            )}
+          </div>
         </header>
       )}
-      <div className={`min-h-0 flex-1 ${bodyClass}`}>{children}</div>
+      {(!collapsible || open) && (
+        <div className={`w-full ${bodyClass}`}>{children}</div>
+      )}
     </section>
   );
 }

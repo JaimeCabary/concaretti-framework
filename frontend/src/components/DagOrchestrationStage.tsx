@@ -15,11 +15,24 @@ import { selectLayers, useAgentStore } from "../store/agentStore";
 import type { Subtask } from "../types";
 import { AgentTag, agentColor, Panel, StatusBadge } from "./ui";
 
+const AGENT_SCREEN_MAP: Record<string, string> = {
+  sms: "telecom",
+  telecom: "telecom",
+  browser: "browser",
+  calendar: "calendar",
+  email: "email",
+  shopper: "shopper",
+  market: "market",
+  chain: "chain",
+  diary: "diary",
+};
+
 function SubtaskRow({ task }: { task: Subtask }) {
   const [open, setOpen] = useState(false);
   const blocked = task.status === "rejected" || task.status === "skipped";
   const detail = task.blocked_reason || task.error || task.result;
   const hasDetail = Boolean(detail);
+  const screenTab = task.agent ? AGENT_SCREEN_MAP[task.agent.toLowerCase()] : null;
 
   return (
     <li
@@ -46,6 +59,21 @@ function SubtaskRow({ task }: { task: Subtask }) {
                 · {task.model_used}
               </span>
             ) : null}
+            {screenTab && (
+              <button
+                type="button"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent("conca_switch_tab", { detail: screenTab }),
+                  )
+                }
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-elevated hover:bg-fg hover:text-bg text-fg/80 border border-hairline transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+                title={`Open ${screenTab.toUpperCase()} screen to see ${task.agent} in action`}
+              >
+                <span className="size-1 rounded-full bg-ok" />
+                <span>View Screen ↗</span>
+              </button>
+            )}
           </div>
           <p className="mt-0.5 text-[13px] leading-snug text-fg">
             {task.description}
@@ -54,6 +82,12 @@ function SubtaskRow({ task }: { task: Subtask }) {
           {task.blocked_reason ? (
             <p className="mt-1 text-[12px] leading-snug text-fg">
               {task.blocked_reason}
+            </p>
+          ) : null}
+
+          {task.error ? (
+            <p className="mt-1 text-[11px] font-mono text-danger font-medium">
+              ⚠ {task.error}
             </p>
           ) : null}
 
@@ -85,6 +119,7 @@ function SubtaskRow({ task }: { task: Subtask }) {
 export function DagOrchestrationStage() {
   const layers = useAgentStore(selectLayers);
   const total = useAgentStore((s) => s.subtasks.length);
+  const running = useAgentStore((s) => s.running);
   const blocked = useAgentStore(
     (s) =>
       s.subtasks.filter(
@@ -92,12 +127,43 @@ export function DagOrchestrationStage() {
       ).length,
   );
 
-  if (total === 0) return null;
+  if (total === 0) {
+    if (!running) return null;
+    return (
+      <Panel
+        title="Orchestration Plan"
+        accent="var(--color-reports)"
+        collapsible
+        defaultOpen={true}
+        actions={
+          <span className="type-mono text-[10px] text-muted flex items-center gap-1.5 font-bold">
+            <span className="size-2 rounded-full bg-[#00E5FF] animate-pulse" />
+            SYNTHESIZING DAG...
+          </span>
+        }
+      >
+        <div className="p-3.5 space-y-2 animate-pulse">
+          <div className="h-9 rounded-lg bg-obsidian/70 border border-hairline/50 flex items-center px-3 gap-2.5">
+            <span className="size-2 rounded-full bg-blue-400" />
+            <div className="h-3 bg-fg/20 rounded w-1/3" />
+            <div className="h-2.5 bg-fg/10 rounded w-16 ml-auto" />
+          </div>
+          <div className="h-9 rounded-lg bg-obsidian/70 border border-hairline/50 flex items-center px-3 gap-2.5">
+            <span className="size-2 rounded-full bg-purple-400" />
+            <div className="h-3 bg-fg/20 rounded w-2/5" />
+            <div className="h-2.5 bg-fg/10 rounded w-16 ml-auto" />
+          </div>
+        </div>
+      </Panel>
+    );
+  }
 
   return (
     <Panel
       title="Orchestration"
       accent="var(--color-reports)"
+      collapsible
+      defaultOpen={false}
       actions={
         <span className="type-mono text-[10px] text-muted">
           {blocked > 0 ? (

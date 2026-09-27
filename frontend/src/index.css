@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 /*
   Concaretti â€” soft-clean, the way the app actually looked.
@@ -158,7 +158,7 @@
      via @fontsource in `main.tsx`, so all four survive offline in the service
      worker and both native wrappers. Mono stays a system stack: it saves a
      download and every platform already has a good one. */
-  --font-display: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
+  --font-display: "Anton", system-ui, sans-serif;
   --font-body:
     "DM Sans Variable", "DM Sans", system-ui, -apple-system, sans-serif;
   --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
@@ -273,7 +273,7 @@
 }
 .type-display {
   font-family: var(--font-display);
-  font-weight: 400; /* Anton is single-weight Î“Ã‡Ã¶ already black. Never 800. */
+  font-weight: 400; /* Anton is single-weight — already black. Never 800. */
   text-transform: uppercase;
   letter-spacing: 0.01em;
   line-height: 0.95;

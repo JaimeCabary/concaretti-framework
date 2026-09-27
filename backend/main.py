@@ -591,7 +591,7 @@ async def login(req: LoginRequest, request: Request, response: Response) -> dict
         if hashlib.sha256(req.pin.encode()).hexdigest() != p["pin_hash"]:
              raise HTTPException(401, "Invalid username or PIN")
              
-    role = p.get("role", "public")
+    role = p.get("role", "student")
     
     response.set_cookie(
         key=auth.COOKIE_NAME,
@@ -670,8 +670,63 @@ async def google_callback(request: Request, code: str):
 
 @app.post("/api/auth/logout")
 async def logout(response: Response) -> dict:
-    response.delete_cookie(COOKIE_NAME)
-    return {"ok": True, "role": "public"}
+    cookie_val = auth.make_cookie("guest", "student")
+    response.set_cookie(
+        key=auth.COOKIE_NAME,
+        value=cookie_val,
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,
+    )
+    return {"ok": True, "role": "student"}
+
+
+class SwitchRoleRequest(BaseModel):
+    role: str
+
+
+@app.post("/api/auth/role")
+async def switch_role(
+    req: SwitchRoleRequest,
+    request: Request,
+    response: Response,
+    session: tuple[str | None, auth.Role] = Depends(auth.current_session),
+) -> dict:
+    target_role = req.role.lower().strip()
+    if target_role not in auth.VALID_ROLES:
+        raise HTTPException(400, f"Invalid role: {req.role}")
+
+    username, current_r = session
+    if not auth.is_local(request) and current_r != "staff":
+        raise HTTPException(403, "Role switching is restricted to the local machine or staff.")
+
+    uname = username
+    if not uname:
+        profiles_file = os.path.join(os.path.dirname(__file__), "..", "user_profile.json")
+        if os.path.exists(profiles_file):
+            try:
+                import json
+                p_data = json.loads(Path(profiles_file).read_text(encoding="utf-8"))
+                uname = p_data.get("name")
+            except Exception:
+                pass
+    if not uname:
+        uname = "Heccker"
+
+    cookie_val = auth.make_cookie(uname, target_role)  # type: ignore
+    response.set_cookie(
+        key=auth.COOKIE_NAME,
+        value=cookie_val,
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,
+    )
+    return {
+        "ok": True,
+        "role": target_role,
+        "username": uname,
+        "agents": policy().agents_for_role(target_role),
+    }
 
 
 @app.get("/api/auth/me")
@@ -1009,11 +1064,65 @@ class EventRequest(BaseModel):
 
 
 @app.get("/api/calendar/events")
-async def calendar_events(days: float = 30, kinds: str | None = None) -> dict:
+async def calendar_events(days: float = 400, kinds: str | None = None) -> dict:
+    from tools import _google_service
+    from datetime import datetime
+    import asyncio
+
+    # Sync live Google Calendar events when connected
+    try:
+        service = _google_service("calendar", "v3")
+        if service:
+            now_ts = time.time()
+            from datetime import timezone
+            t_min = datetime.fromtimestamp(now_ts - 60 * 86_400, tz=timezone.utc).isoformat()
+            t_max = datetime.fromtimestamp(now_ts + max(days, 365) * 86_400, tz=timezone.utc).isoformat()
+            res = await asyncio.to_thread(
+                lambda: service.events().list(
+                    calendarId="primary",
+                    timeMin=t_min,
+                    timeMax=t_max,
+                    maxResults=2500,
+                    singleEvents=True,
+                    orderBy="startTime",
+                ).execute()
+            )
+            items = res.get("items", [])
+            for item in items:
+                title = item.get("summary") or "Untitled Event"
+                st = item.get("start", {})
+                en = item.get("end", {})
+                if "dateTime" in st:
+                    start_ts = datetime.fromisoformat(st["dateTime"].replace("Z", "+00:00")).timestamp()
+                elif "date" in st:
+                    start_ts = datetime.strptime(st["date"], "%Y-%m-%d").timestamp()
+                else:
+                    continue
+                if "dateTime" in en:
+                    end_ts = datetime.fromisoformat(en["dateTime"].replace("Z", "+00:00")).timestamp()
+                elif "date" in en:
+                    end_ts = datetime.strptime(en["date"], "%Y-%m-%d").timestamp() + 86400
+                else:
+                    end_ts = start_ts + 3600
+                desc = item.get("description") or ""
+                low = (title + " " + desc).lower()
+                kind = "exam" if any(k in low for k in ["exam", "test", "quiz"]) else "deadline" if any(k in low for k in ["deadline", "due", "submission"]) else "revision" if any(k in low for k in ["revision", "study", "prep", "practice"]) else "event"
+                store().add_event(
+                    title=title,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    description=desc,
+                    kind=kind,
+                    source="google",
+                    event_id=item.get("id"),
+                )
+    except Exception as err:
+        pass
+
     now = time.time()
     kind_list = [k.strip() for k in kinds.split(",")] if kinds else None
     return {
-        "events": store().list_events(now - 7 * 86_400, now + days * 86_400, kind_list)
+        "events": store().list_events(now - 180 * 86_400, now + max(days, 365) * 86_400, kind_list)
     }
 
 
@@ -1222,8 +1331,8 @@ class DiaryRequest(BaseModel):
 
 
 @app.get("/api/diary")
-async def diary_list() -> dict:
-    return {"entries": store().list_diary()}
+async def diary_list(limit: int = 0) -> dict:
+    return {"entries": store().list_diary(limit=limit)}
 
 
 @app.post("/api/diary")
@@ -2097,19 +2206,124 @@ async def market_quote(symbols: str, role: Role = Depends(current_role)) -> dict
 
 @app.get("/api/market/chart")
 async def market_chart(symbol: str, range: str = "1mo", interval: str = "1d", role: Role = Depends(current_role)) -> dict:
-    """Historical chart data."""
+    """Historical chart data from Yahoo Finance with CoinGecko and Binance fallback."""
     _require_agent("market", role, "market")
     import httpx
     import urllib.parse
-    headers = {"User-Agent": "Mozilla/5.0"}
-    async with httpx.AsyncClient() as client:
-        res = await client.get(
-            f"https://query2.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol.upper())}?range={range}&interval={interval}",
-            headers=headers
-        )
-        if res.status_code == 200:
-            return {"ok": True, "chart": res.json()}
-        return {"ok": False, "summary": f"Failed to fetch chart: {res.status_code}"}
+
+    sym = symbol.upper().strip()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Referer": "https://finance.yahoo.com/",
+    }
+
+    # 1. First try query1.finance.yahoo.com (fast and highly reliable with browser headers)
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?range={range}&interval={interval}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(url, headers=headers)
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("chart", {}).get("result"):
+                    return {"ok": True, "chart": data}
+    except Exception:
+        pass
+
+    # 2. Keyless Crypto fallback via CoinGecko
+    crypto_ids = {
+        "BTC": "bitcoin",
+        "BTC-USD": "bitcoin",
+        "BTCUSDT": "bitcoin",
+        "ETH": "ethereum",
+        "ETH-USD": "ethereum",
+        "ETHUSDT": "ethereum",
+        "SOL": "solana",
+        "SOL-USD": "solana",
+        "SOLUSDT": "solana",
+        "DOGE": "dogecoin",
+        "DOGE-USD": "dogecoin",
+        "ADA": "cardano",
+        "ADA-USD": "cardano",
+        "XRP": "ripple",
+        "XRP-USD": "ripple",
+    }
+    cg_id = crypto_ids.get(sym) or (sym.split("-")[0].lower() if "-" in sym else None)
+    if cg_id:
+        cg_url = f"https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart?vs_currency=usd&days=30&interval=daily"
+        try:
+            async with httpx.AsyncClient(timeout=5.0, headers=headers) as client:
+                res = await client.get(cg_url)
+                if res.status_code == 200:
+                    prices = res.json().get("prices", [])
+                    if prices:
+                        timestamps = [int(p[0]) // 1000 for p in prices]
+                        closes = [round(float(p[1]), 2) for p in prices]
+                        opens = [closes[max(0, i - 1)] for i in range(len(closes))]
+                        highs = [round(max(opens[i], closes[i]) * 1.015, 2) for i in range(len(closes))]
+                        lows = [round(min(opens[i], closes[i]) * 0.985, 2) for i in range(len(closes))]
+                        vols = [10000000.0] * len(closes)
+                        return {
+                            "ok": True,
+                            "chart": {
+                                "chart": {
+                                    "result": [
+                                        {
+                                            "meta": {"symbol": sym, "regularMarketPrice": closes[-1]},
+                                            "timestamp": timestamps,
+                                            "indicators": {
+                                                "quote": [
+                                                    {"open": opens, "high": highs, "low": lows, "close": closes, "volume": vols}
+                                                ]
+                                            },
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+        except Exception:
+            pass
+
+    # 3. Secondary Crypto fallback via Binance public API
+    if "-" in sym or sym in ("BTC", "ETH", "SOL"):
+        binance_pair = sym.replace("-USD", "USDT").replace("-USDT", "USDT")
+        if not binance_pair.endswith("USDT"):
+            binance_pair += "USDT"
+        b_url = f"https://api.binance.com/api/v3/klines?symbol={binance_pair}&interval=1d&limit=35"
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                res = await client.get(b_url)
+                if res.status_code == 200:
+                    klines = res.json()
+                    timestamps = [int(k[0]) // 1000 for k in klines]
+                    opens = [float(k[1]) for k in klines]
+                    highs = [float(k[2]) for k in klines]
+                    lows = [float(k[3]) for k in klines]
+                    closes = [float(k[4]) for k in klines]
+                    vols = [float(k[5]) for k in klines]
+                    return {
+                        "ok": True,
+                        "chart": {
+                            "chart": {
+                                "result": [
+                                    {
+                                        "meta": {"symbol": sym, "regularMarketPrice": closes[-1] if closes else 0},
+                                        "timestamp": timestamps,
+                                        "indicators": {
+                                            "quote": [
+                                                {"open": opens, "high": highs, "low": lows, "close": closes, "volume": vols}
+                                            ]
+                                        },
+                                    }
+                                ]
+                            }
+                        },
+                    }
+        except Exception:
+            pass
+
+    return {"ok": False, "summary": "Market data temporarily unavailable"}
+
 
 
 @app.get("/api/market/fundamentals")
@@ -2412,9 +2626,25 @@ async def desktop_capture(
             "`on` to allow them without one.",
         )
 
+    img_b64 = req.image_b64.strip()
+    mime = req.mime_type or "image/png"
+    if not img_b64:
+        try:
+            import mss
+            import mss.tools
+            import base64
+            with mss.mss() as sct:
+                monitor = sct.monitors[1]
+                sct_img = sct.grab(monitor)
+                raw_bytes = mss.tools.to_png(sct_img.rgb, sct_img.size)
+                img_b64 = base64.b64encode(raw_bytes).decode("utf-8")
+                mime = "image/png"
+        except Exception as exc:
+            raise HTTPException(400, f"Host screen capture failed: {exc}")
+
     ref = f"cap_{secrets.token_urlsafe(12)}"
     try:
-        receipt = stash_screen(ref, req.image_b64, req.mime_type)
+        receipt = stash_screen(ref, img_b64, mime)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -2424,6 +2654,27 @@ async def desktop_capture(
         role=role, prompt=prompt, title="read the screen"
     )
     return {**_spawn(session_id, prompt, role), **receipt, "mode": mode}
+
+
+class OSAgentRequest(BaseModel):
+    task: str = Field(min_length=1)
+    max_steps: int = 15
+
+
+@app.post("/api/desktop/os_agent")
+async def desktop_os_agent(
+    req: OSAgentRequest, request: Request, role: Role = Depends(current_role)
+) -> dict:
+    """
+    Direct invocation endpoint for the autonomous Windows OS Agent.
+    Available to the local Tauri desktop client or scripts.
+    """
+    from os_agent import OSAgent
+
+    agent = OSAgent(max_steps=req.max_steps, verbose=True)
+    res = await agent.run(req.task)
+    return res
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════

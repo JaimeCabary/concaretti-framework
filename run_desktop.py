@@ -26,6 +26,23 @@ FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+# Auto-inject backend virtualenv site-packages if running from global or different python interpreter
+venv_site = BACKEND_DIR / ".venv" / ("Lib" if sys.platform == "win32" else "lib") / "site-packages"
+if not venv_site.exists():
+    lib_dir = BACKEND_DIR / ".venv" / "lib"
+    if lib_dir.exists():
+        for py_dir in lib_dir.glob("python*"):
+            sp = py_dir / "site-packages"
+            if sp.exists():
+                venv_site = sp
+                break
+
+if venv_site.exists() and str(venv_site) not in sys.path:
+    sys.path.insert(0, str(venv_site))
+    win32_pkg = venv_site / "win32"
+    if win32_pkg.exists() and str(win32_pkg) not in sys.path:
+        sys.path.insert(0, str(win32_pkg))
+
 try:
     import httpx
     import uvicorn

@@ -210,6 +210,10 @@ export const api = {
       pin,
     }),
   logout: () => post<{ ok: boolean }>("/api/auth/logout"),
+  setRole: (role: Role) =>
+    post<{ ok: boolean; role: Role; agents: string[]; username: string }>("/api/auth/role", {
+      role,
+    }),
 
   getProfile: () =>
     request<{ name: string; role: Role; onboarded: boolean }>("/api/profile"),
@@ -369,6 +373,11 @@ export const api = {
       connected: boolean;
       error?: string;
     }>("/api/email/list" + qs({ max_results: maxResults })),
+  email: (msgId: string) =>
+    request<{
+      ok: boolean;
+      message: EmailMessage & { body?: string };
+    }>(`/api/email/${encodeURIComponent(msgId)}`),
 
   // ── telecom ──────────────────────────────────────────────────────────────
   smsThreads: () => request<{ threads: SmsThread[] }>("/api/sms/threads"),
@@ -603,6 +612,15 @@ export const api = {
       image_b64: imageB64,
       question,
     }),
+  /**
+   * Run autonomous Windows OS reasoning agent directly.
+   */
+  runOsAgent: (task: string, maxSteps = 15) =>
+    post<{ status: string; result: string; steps?: any[] }>("/api/desktop/os_agent", {
+      task,
+      max_steps: maxSteps,
+    }),
+
 
   // ── connecting accounts ──────────────────────────────────────────────────
   /**

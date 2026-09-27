@@ -32,6 +32,7 @@ import { useState, useEffect, useRef } from "react";
 import { AgentDock } from "../components/AgentDock";
 import { ArtifactPanel } from "../components/ArtifactPanel";
 import { BrowserPanel } from "../components/BrowserPanel";
+import { GithubPanel } from "../components/GithubPanel";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { ChainPanel } from "../components/ChainPanel";
 import { ConcaPanel } from "../components/ConcaPanel";
@@ -50,7 +51,7 @@ import { TelecomInbox } from "../components/TelecomInbox";
 import { ThoughtStream } from "../components/ThoughtStream";
 import { ConversationFeed } from "../components/ConversationFeed";
 import { WorkDiary } from "../components/WorkDiary";
-import { AgentTag } from "../components/ui";
+import { AgentTag, Panel } from "../components/ui";
 import { useAgentStore } from "../store/agentStore";
 import type { Subtask } from "../types";
 
@@ -72,14 +73,12 @@ function AutonomousHudBanner({
       <div className="flex items-center gap-3 min-w-0 pr-2">
         <span className="relative flex size-2.5 shrink-0">
           <span
-            className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
-              isFinished ? "bg-ok" : "bg-[#00E5FF] animate-ping"
-            }`}
+            className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isFinished ? "bg-ok" : "bg-[#00E5FF] animate-ping"
+              }`}
           />
           <span
-            className={`relative inline-flex size-2.5 rounded-full ${
-              isFinished ? "bg-ok" : "bg-[#00E5FF]"
-            }`}
+            className={`relative inline-flex size-2.5 rounded-full ${isFinished ? "bg-ok" : "bg-[#00E5FF]"
+              }`}
           />
         </span>
         <AgentTag agent={agent} />
@@ -107,6 +106,7 @@ type Tab =
   | "email"
   | "telecom"
   | "browser"
+  | "github"
   | "shopper"
   | "market"
   | "chain"
@@ -127,7 +127,7 @@ const ITEMS: ReadonlyArray<RailItem<Tab> & { local?: boolean }> = [
   { key: "calendar", label: "Calendar", agent: "calendar" },
   { key: "email", label: "Email", agent: "email" },
   { key: "telecom", label: "Telecom", agent: "sms" },
-  { key: "browser", label: "Browser", agent: "browser" },
+  { key: "github", label: "GitHub" },
   { key: "diary", label: "Diary" },
   // The three money agents. Each is gated on its own grant rather than on a
   // shared "money" flag, because the policy grants per agent: a role can hold
@@ -149,23 +149,25 @@ const ITEMS: ReadonlyArray<RailItem<Tab> & { local?: boolean }> = [
  * thing on it rather than a scroll.
  */
 function Idle() {
-  const userName = useAgentStore((s) => s.userName);
-  const displayName = userName ? `, ${userName}` : "";
-  const hour = new Date().getHours();
-  let greeting = "Good evening";
-  if (hour < 12) greeting = "Good morning";
-  else if (hour < 17) greeting = "Good afternoon";
-
   return (
-    <div className="mx-auto w-full max-w-[46rem] pt-[15vh]">
-      <div className="text-center flex flex-col items-center mb-8">
-        <img src="/favicon.png" alt="Logo" className="size-10 mb-4" />
-        <h1 className="type-tagline text-[clamp(28px,4vw,40px)] text-fg tracking-tight">
-          {greeting}{displayName}
-        </h1>
+    <div className="mx-auto max-w-2xl text-center pt-8 sm:pt-16">
+      <div className="mb-6 flex justify-center">
+        <img
+          src="/favicon.png"
+          alt=""
+          className="size-16 rounded-2xl border-2 border-fg bg-elevated p-2 shadow-[4px_4px_0px_#000]"
+        />
       </div>
+      <h1 className="type-display text-3xl sm:text-4xl text-fg mb-3">
+        Concaretti Multi-Agent OS
+      </h1>
+      <p className="text-[15px] leading-relaxed text-dim max-w-xl mx-auto mb-8">
+        The autonomous desktop operating system. Speak or type below to command
+        the council — specialist agents will plan, screen, and execute across your
+        local system.
+      </p>
 
-      <div className="w-full">
+      <div className="max-w-xl mx-auto text-left">
         <CouncilCockpit
           placeholder="Ask anything or tell the council what you need…"
           showTimeline={false}
@@ -178,42 +180,116 @@ function Idle() {
 
 /**
  * A live or finished run: the answer, then the plan and the stream beside it.
- *
- * Two columns rather than three. The recall panel and the agent list were the
- * third, and neither is about the run in progress — they were there because the
- * column existed.
  */
 function Run() {
+  const clearRun = useAgentStore((s) => s.clearRun);
+  const turns = useAgentStore((s) => s.turns);
+  const [layoutMode, setLayoutMode] = useState<"split" | "history" | "stream">("split");
+
   return (
     <div className="flex flex-col h-full w-full">
+      {/* Top Session Actions Header */}
+      <div className="shrink-0 px-6 py-2.5 border-b border-hairline flex flex-wrap items-center justify-between gap-3 bg-void">
+        <div className="flex items-center gap-3">
+          <span className="type-mono text-[10px] text-muted tracking-wider uppercase font-bold flex items-center gap-2">
+            <span className="size-2 rounded-full bg-[#22c55e] animate-pulse" />
+            COUNCIL OPERATING SYSTEM · STAFF RUN
+          </span>
+
+          {/* View Mode Controls: Split, Full History, Full Trace */}
+          <div className="hidden sm:flex items-center rounded-lg border border-hairline bg-obsidian p-0.5">
+            <button
+              type="button"
+              onClick={() => setLayoutMode("split")}
+              className={`type-mono text-[10px] font-bold px-2.5 py-1 rounded transition-colors cursor-pointer ${layoutMode === "split"
+                  ? "bg-elevated text-fg shadow-2xs"
+                  : "text-muted hover:text-fg"
+                }`}
+              title="View conversation and thought stream side-by-side"
+            >
+              Split View
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode("history")}
+              className={`type-mono text-[10px] font-bold px-2.5 py-1 rounded transition-colors cursor-pointer ${layoutMode === "history"
+                  ? "bg-elevated text-fg shadow-2xs"
+                  : "text-muted hover:text-fg"
+                }`}
+              title="Expand conversation & execution history to full width"
+            >
+              Expand History
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode("stream")}
+              className={`type-mono text-[10px] font-bold px-2.5 py-1 rounded transition-colors cursor-pointer ${layoutMode === "stream"
+                  ? "bg-elevated text-fg shadow-2xs"
+                  : "text-muted hover:text-fg"
+                }`}
+              title="Expand thought stream trace to full width"
+            >
+              Expand Trace
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={clearRun}
+          className="type-mono text-[11px] font-bold text-dim hover:text-fg border border-hairline px-2.5 py-1 bg-obsidian transition-colors cursor-pointer"
+        >
+          + New Session
+        </button>
+      </div>
+
       {/* Independent Scrolling Columns */}
-      <div className="flex-1 min-h-0 px-5 pt-6 pb-6 sm:px-8 lg:px-12">
-        <div className="mx-auto w-full h-full max-w-[86rem]">
-          <div className="grid gap-x-10 h-full lg:grid-cols-2">
-            <div className="min-w-0 flex flex-col gap-8 h-full overflow-y-auto pb-8 pr-2">
-              <section className="panel flex flex-col min-h-0">
-                <header className="panel-head">
-                  <h2 className="type-display flex min-w-0 items-center gap-2 text-[14px]">
-                    <span aria-hidden className="panel-swatch" style={{ background: "var(--color-study)" }} />
-                    <span className="truncate uppercase tracking-widest">Execution History</span>
-                  </h2>
-                </header>
-                <div className="p-4 flex-1 overflow-y-auto bg-void/30">
-                  <ConversationFeed role="staff" />
+      <div className="flex-1 min-h-0 px-4 pt-4 pb-4 sm:px-6 lg:px-8">
+        <div className="mx-auto w-full h-full max-w-[92rem]">
+          <div
+            className={`grid gap-6 h-full transition-all ${layoutMode === "split"
+                ? "lg:grid-cols-2"
+                : "grid-cols-1"
+              }`}
+          >
+            {/* Left Column: Sequential Conversation Feed + Live DAG Orchestration + Artifacts */}
+            {(layoutMode === "split" || layoutMode === "history") && (
+              <div className="min-w-0 flex flex-col gap-6 h-full overflow-y-auto pb-32 pr-2">
+                <div className="shrink-0 w-full">
+                  <Panel
+                    title="Conversation History"
+                    accent="var(--color-study)"
+                    collapsible
+                    defaultOpen={true}
+                    actions={
+                      turns.length > 0 ? (
+                        <span className="text-[11px] text-muted font-medium">
+                          {turns.length} Turn{turns.length === 1 ? "" : "s"}
+                        </span>
+                      ) : null
+                    }
+                    bodyClass="p-3 sm:p-5 bg-void/30"
+                  >
+                    <ConversationFeed role="staff" />
+                  </Panel>
                 </div>
-              </section>
-              
-              <div className="shrink-0">
-                <DagOrchestrationStage />
+
+                <div className="shrink-0">
+                  <DagOrchestrationStage />
+                </div>
+
+                <div className="shrink-0">
+                  <ArtifactPanel />
+                </div>
               </div>
-              
-              <div className="shrink-0">
-                <ArtifactPanel />
+            )}
+
+            {/* Right Column: Live Deductive Thought Stream */}
+            {(layoutMode === "split" || layoutMode === "stream") && (
+              <div className="min-w-0 flex flex-col gap-6 h-full overflow-y-auto pb-12 pl-2">
+                <ThoughtStream role="staff" />
               </div>
-            </div>
-            <div className="min-w-0 flex flex-col gap-8 h-full overflow-y-auto pb-8 pl-2">
-              <ThoughtStream role="staff" />
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -231,14 +307,15 @@ function Run() {
     </div>
   );
 }
+
 export function StaffScreen() {
   const agents = useAgentStore((s) => s.agents);
   const canSetup = useAgentStore((s) => s.canSetup);
   const sessionId = useAgentStore((s) => s.sessionId);
-  const hasRun = sessionId !== null;
-  const clearRun = useAgentStore((s) => s.clearRun);
-  const subtasks = useAgentStore((s) => s.subtasks);
+  const turns = useAgentStore((s) => s.turns);
   const running = useAgentStore((s) => s.running);
+  const hasRun = sessionId !== null || running || turns.length > 0;
+  const subtasks = useAgentStore((s) => s.subtasks);
   const [tab, setTab] = useState<Tab>("ops");
   const autoSwitchRef = useRef<string | null>(null);
   const [returnCountdown, setReturnCountdown] = useState<number | null>(null);
@@ -251,44 +328,56 @@ export function StaffScreen() {
   }, [sessionId]);
 
   useEffect(() => {
+    const onSwitchTab = (e: Event) => {
+      const tabKey = (e as CustomEvent<Tab>).detail;
+      if (tabKey) setTab(tabKey);
+    };
+    window.addEventListener("conca_switch_tab", onSwitchTab);
+    return () => window.removeEventListener("conca_switch_tab", onSwitchTab);
+  }, []);
+
+  const AGENT_SCREEN_MAP: Record<string, Tab> = {
+    calendar: "calendar",
+    email: "email",
+    sms: "telecom",
+    telecom: "telecom",
+    browser: "browser",
+    market: "market",
+    shopper: "shopper",
+    diary: "diary",
+    chain: "chain",
+  };
+
+  useEffect(() => {
     const runningTask = subtasks.find((t) => t.status === "running");
     if (runningTask && runningTask.agent) {
       setLastActiveTask(runningTask);
-      if (autoSwitchRef.current !== runningTask.id) {
+      const targetScreen = AGENT_SCREEN_MAP[runningTask.agent.toLowerCase()];
+      if (targetScreen && autoSwitchRef.current !== runningTask.id) {
         autoSwitchRef.current = runningTask.id;
-        const agentToTab: Record<string, Tab> = {
-          calendar: "calendar",
-          email: "email",
-          sms: "telecom",
-          telecom: "telecom",
-          browser: "browser",
-          shopper: "shopper",
-          market: "market",
-          chain: "chain",
-          diary: "diary",
-        };
-        const newTab = agentToTab[runningTask.agent];
-        if (newTab) {
-          setTab(newTab);
-        }
+        setTab(targetScreen);
+        setReturnCountdown(null);
       }
-    } else if (!running && autoSwitchRef.current) {
-      // Run completed: give 2.5s graceful countdown to show success on screen before rerouting
-      setReturnCountdown(2);
-      const timer = setInterval(() => {
-        setReturnCountdown((c) => {
-          if (c === null || c <= 1) {
-            clearInterval(timer);
-            setTab("ops");
-            autoSwitchRef.current = null;
+    }
+  }, [subtasks]);
+
+  // When run finishes, offer a smooth return countdown back to ops
+  useEffect(() => {
+    if (!running && autoSwitchRef.current && tab !== "ops") {
+      setReturnCountdown(4);
+      const interval = setInterval(() => {
+        setReturnCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            returnToOps();
             return null;
           }
-          return c - 1;
+          return prev - 1;
         });
       }, 1000);
-      return () => clearInterval(timer);
+      return () => clearInterval(interval);
     }
-  }, [subtasks, running]);
+  }, [running, tab]);
 
   const returnToOps = () => {
     setTab("ops");
@@ -306,7 +395,6 @@ export function StaffScreen() {
         items={visible}
         active={tab}
         onSelect={(key) => {
-          if (key === "ops") clearRun();
           setTab(key);
         }}
         middle={<RailSessions onSelectSession={() => setTab("ops")} />}
@@ -384,24 +472,64 @@ export function StaffScreen() {
           <div className="flex-1 min-h-0 p-3 sm:p-5 flex flex-col overflow-hidden">
             <WorkDiary />
           </div>
+        ) : tab === "market" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <MarketPanel />
+          </div>
+        ) : tab === "shopper" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <ShopperPanel />
+          </div>
+        ) : tab === "email" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <EmailHub />
+          </div>
+        ) : tab === "telecom" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <TelecomInbox />
+          </div>
+        ) : tab === "browser" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <BrowserPanel />
+          </div>
+        ) : tab === "github" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <GithubPanel />
+          </div>
+        ) : tab === "chain" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <ChainPanel />
+          </div>
         ) : (
-          /* One column at full width. Clean domain panels without stage clipping. */
+          /* Settings / docs / policy keep scroll — they are forms, not dashboards */
           <div className="flex-1 overflow-y-auto px-5 pb-20 pt-6 sm:px-8 lg:px-12">
             <div className="space-y-10">
               <div className="min-w-0">
-                {tab === "email" ? (
-                  <EmailHub />
-                ) : tab === "telecom" ? (
-                  <TelecomInbox />
-                ) : tab === "browser" ? (
-                  <BrowserPanel />
-                ) : tab === "shopper" ? (
-                  <ShopperPanel />
-                ) : tab === "market" ? (
-                  <MarketPanel />
-                ) : (
-                  <ChainPanel />
-                )}
+                {tab === "help" ? (
+                  <DocsPanel />
+                ) : tab === "setup" ? (
+                  <div className="max-w-3xl">
+                    <ConnectAccounts />
+                  </div>
+                ) : tab === "policy" ? (
+                  <div className="max-w-5xl space-y-10">
+                    <ConcaPanel />
+                    <div className="max-w-2xl">
+                      <CouncilCockpit
+                        placeholder="Try something the policy should refuse…"
+                        showTimeline={false}
+                      />
+                    </div>
+                    <div>
+                      <h2 className="type-display mb-1 text-[20px]">What this grants</h2>
+                      <p className="mb-5 text-[13px] leading-relaxed text-dim">
+                        Every agent below is an enabled line in the file. Revoke one and
+                        it disappears from here, from the rail, and from the plan.
+                      </p>
+                      <AgentDock />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

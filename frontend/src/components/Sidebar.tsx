@@ -62,6 +62,9 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M3.5 12h17M12 3.5c2.2 2.4 3.3 5.3 3.3 8.5S14.2 18.1 12 20.5c-2.2-2.4-3.3-5.3-3.3-8.5S9.8 5.9 12 3.5z" />
     </>
   ),
+  github: (
+    <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+  ),
   shopper: (
     <>
       <path d="M4.5 8h15l-1.2 11.2a1.5 1.5 0 0 1-1.5 1.3H7.2a1.5 1.5 0 0 1-1.5-1.3z" />
@@ -130,6 +133,9 @@ export type RailItem<T extends string> = {
   secondary?: boolean;
   /** Pinned to the bottom, under the divider — configuration, not a workspace. */
   footer?: boolean;
+  /** When true, renders a PENDING status pill indicating guided onboarding */
+  pending?: boolean;
+  badge?: string;
 };
 
 function Item<T extends string>({
@@ -149,30 +155,28 @@ function Item<T extends string>({
       role="tab"
       aria-selected={active}
       data-tour={`tab-${item.key}`}
-      title={collapsed ? item.label : undefined}
+      title={collapsed ? `${item.label}${item.pending ? " (Pending)" : ""}` : undefined}
       onClick={() => onSelect(item.key)}
       className={`flex w-full items-center gap-3 rounded-full py-2 text-left
-        text-[14px] font-medium transition-all ${collapsed ? "justify-center px-0" : "px-3"} ${
+        text-[14px] font-medium transition-all cursor-pointer ${collapsed ? "justify-center px-0" : "px-3"} ${
           active
-            ? "text-fg font-semibold"
+            ? "bg-[#FEF08A] text-black font-semibold shadow-xs border border-amber-300/60"
             : "text-dim hover:bg-elevated hover:text-fg"
         }`}
-      style={
-        active
-          ? {
-              background: item.agent
-                ? `var(--color-agent-${item.agent}, var(--color-elevated))`
-                : "var(--color-elevated)",
-              boxShadow: "inset 0 0 0 1px rgba(26, 26, 26, 0.08)",
-            }
-          : undefined
-      }
     >
       <Icon name={item.key} />
       {!collapsed && (
         <>
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
-          {item.agent && !active && (
+          {item.pending ? (
+            <span className="type-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/25 font-bold shrink-0">
+              PENDING
+            </span>
+          ) : item.badge ? (
+            <span className="type-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-elevated text-muted border border-hairline font-bold shrink-0">
+              {item.badge}
+            </span>
+          ) : item.agent ? (
             <span
               aria-hidden
               className="size-[6px] shrink-0 rounded-full"
@@ -180,7 +184,7 @@ function Item<T extends string>({
                 background: `var(--color-agent-${item.agent}, #999)`,
               }}
             />
-          )}
+          ) : null}
         </>
       )}
     </button>
@@ -268,7 +272,7 @@ export function Sidebar<T extends string>({
     <nav
       role="tablist"
       aria-label="Sections"
-      className={`relative flex shrink-0 flex-col h-dvh overflow-hidden select-none bg-void
+      className={`relative z-40 flex shrink-0 flex-col h-dvh select-none bg-void
         ${open ? "w-[236px]" : "w-[68px]"}`}
       style={{ borderRight: "var(--border)" }}
     >

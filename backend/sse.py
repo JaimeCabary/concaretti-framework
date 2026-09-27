@@ -159,7 +159,7 @@ class SseBroker:
         """
         q = await self.subscribe(session_id)
         try:
-            yield _format_sse("activity", {"message": "stream connected"})
+            yield ": connected\n\n"
             while True:
                 try:
                     frame = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_SECONDS)

@@ -52,6 +52,16 @@ const MONTH_NAMES = [
 const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEK_DAYS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
 
+// 6 light pastel week-row tints — airy, fresh, clean, and distinct
+const WEEK_ROW_TINTS = [
+  "#F0F4FF",   // row 0 — soft pastel sky / lavender blue
+  "#FFF1F2",   // row 1 — soft pastel rose / blush
+  "#FEFCE8",   // row 2 — soft pastel butter / lemon chiffon
+  "#F0FDF4",   // row 3 — soft pastel mint / sage
+  "#FAF5FF",   // row 4 — soft pastel lilac / violet
+  "#FFF7ED",   // row 5 — soft pastel peach / apricot
+];
+
 const KIND_META: Record<string, { label: string; dot: string; bg: string; text: string }> = {
   exam: { label: "Exam", dot: "#FF3366", bg: "rgba(255, 51, 102, 0.15)", text: "#FF3366" },
   deadline: { label: "Deadline", dot: "#ECC94B", bg: "rgba(236, 201, 75, 0.15)", text: "#ECC94B" },
@@ -228,7 +238,7 @@ export function CalendarScreen() {
     setSelectedDate(todayString());
   };
 
-  const handleSelectDay = (dateStr: string) => {
+  const handleSelectDay = (dateStr: string, openForm = true) => {
     setSelectedDate(dateStr);
     const parts = dateStr.split("-").map(Number);
     if (parts.length === 3) {
@@ -238,10 +248,21 @@ export function CalendarScreen() {
     if (expandedYear) {
       setExpandedYear(false);
     }
+    if (openForm) {
+      setShowAddForm(true);
+      setTimeout(() => {
+        const input = document.getElementById("cal-title");
+        if (input) {
+          input.focus();
+          (input as HTMLInputElement).select?.();
+        }
+      }, 50);
+    }
   };
 
 
   const removeEvent = (id: string) => {
+    setLocalEvents((prev) => prev.filter((e) => e.id !== id));
     void api.deleteEvent(id).then(load);
   };
 
@@ -259,13 +280,25 @@ export function CalendarScreen() {
       const startTs = Math.floor(startDate.getTime() / 1000);
       const endTs = Math.max(startTs + 1800, Math.floor(endDate.getTime() / 1000));
 
-      await api.createEvent({
+      const res = await api.createEvent({
         title: newTitle.trim(),
         start: startTs,
         end: endTs,
         kind: newKind,
         description: newDesc.trim(),
       });
+
+      // Optimistic update so event chip appears on the clicked box immediately
+      const createdItem: CalendarEvent = res?.event || {
+        id: `ev-${Date.now()}`,
+        title: newTitle.trim(),
+        start_ts: startTs,
+        end_ts: endTs,
+        kind: newKind,
+        description: newDesc.trim(),
+        source: "local",
+      };
+      setLocalEvents((prev) => [...prev, createdItem]);
 
       setNewTitle("");
       setNewDesc("");
@@ -283,17 +316,17 @@ export function CalendarScreen() {
 
   return (
     <div className={`h-full flex flex-col min-h-0 ${expandedYear ? "overflow-y-auto space-y-4 pr-1" : "overflow-hidden space-y-3"}`}>
-      {/* Top Header — Blueprint Aesthetic */}
-      <div className="panel bg-obsidian border-2 border-fg p-3 shadow-[3px_3px_0px_#000] flex flex-wrap items-center justify-between gap-3 shrink-0">
+      {/* Top Header */}
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3 bg-void">
         <div>
           <div className="flex items-center gap-2">
-            <span className="type-display text-xl sm:text-[22px]">CALENDAR & TIMETABLE</span>
-            <span className="type-mono text-[10px] bg-[#68D391] text-black px-2 py-0.5 border-2 border-black font-extrabold uppercase shadow-[2px_2px_0px_#000]">
-              {events.length} EVENTS
+            <h1 className="type-display text-xl sm:text-[22px]">CALENDAR & TIMETABLE</h1>
+            <span className="type-mono text-[10px] bg-agent-chain/20 text-fg px-2 py-0.5 border border-hairline font-semibold rounded uppercase">
+              {events.length} Events
             </span>
           </div>
           <p className="type-mono text-[11px] text-muted mt-0.5">
-            Blueprint schedule, agenda & AI calendar agent
+            Schedule, agenda & AI calendar agent
           </p>
         </div>
 
@@ -301,23 +334,23 @@ export function CalendarScreen() {
           <button
             type="button"
             onClick={jumpToToday}
-            className="btn bg-obsidian border-2 border-black shadow-[2px_2px_0px_#000] hover:bg-elevated text-xs py-1 px-3 font-bold uppercase"
+            className="btn text-xs py-1.5 px-3 font-semibold rounded-lg border-hairline bg-void hover:bg-obsidian/40"
           >
             Today
           </button>
           <button
             type="button"
             onClick={() => setExpandedYear(!expandedYear)}
-            className="btn bg-[#2D3748] text-white hover:bg-black border-2 border-black shadow-[2px_2px_0px_#000] text-xs py-1 px-3.5 font-bold uppercase tracking-wider"
+            className="btn text-xs py-1.5 px-3.5 font-semibold rounded-lg border-hairline bg-obsidian/40 hover:bg-obsidian/70"
           >
-            {expandedYear ? "Focus Month View" : "Expand Full Year"}
+            {expandedYear ? "Month View" : "Full Year"}
           </button>
         </div>
       </div>
 
 
       {err && (
-        <div className="p-2.5 bg-danger-soft border-2 border-fg text-xs text-fg flex items-center justify-between shadow-[2px_2px_0px_#000] shrink-0">
+        <div className="p-2.5 bg-danger-soft border-b border-danger/30 text-xs text-fg flex items-center justify-between shrink-0">
           <span>{err}</span>
           <button type="button" onClick={() => setErr(null)} className="text-xs font-bold underline">
             Dismiss
@@ -328,155 +361,242 @@ export function CalendarScreen() {
       {/* Main View: Single Month (Fits 100% on screen) vs 12-Month Overview (Scrolls) */}
       {!expandedYear ? (
         /* SINGLE MONTH VIEW — Takes up the full space with Blueprint Month Grid + Agenda Split */
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 min-h-0 overflow-hidden">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-3 min-h-0 overflow-hidden px-3 pb-3">
           {/* Left: Large Interactive Month Calendar */}
-          <div className="panel bg-obsidian border-2 border-fg p-3.5 shadow-[4px_4px_0px_#000] flex flex-col space-y-2 min-h-0 h-full overflow-hidden">
+          <div className="panel bg-void border border-hairline rounded-xl p-3.5 flex flex-col space-y-2 min-h-0 h-full overflow-hidden">
             {/* Month & Year Navigation Header */}
-            <div className="flex items-center justify-between pb-2 border-b-2 border-hairline shrink-0">
+            <div className="flex items-center justify-between pb-2 border-b border-hairline shrink-0">
               <button
                 type="button"
                 onClick={prevMonth}
-                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] p-1 px-2.5 text-xs hover:bg-elevated font-bold"
+                className="btn bg-void border border-hairline rounded-lg p-1.5 px-2.5 text-xs hover:bg-obsidian/40 font-bold"
                 aria-label="Previous Month"
               >
                 ◀
               </button>
               <div className="text-center">
-                <span className="type-display text-base tracking-wide font-extrabold text-fg uppercase">
+                <span className="type-display text-base tracking-wide font-bold text-fg uppercase">
                   {MONTH_NAMES[viewMonth]} {viewYear}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={nextMonth}
-                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] p-1 px-2.5 text-xs hover:bg-elevated font-bold"
+                className="btn bg-void border border-hairline rounded-lg p-1.5 px-2.5 text-xs hover:bg-obsidian/40 font-bold"
                 aria-label="Next Month"
               >
                 ▶
               </button>
             </div>
 
-            {/* Weekday Names Header */}
-            <div className="grid grid-cols-7 text-center font-mono text-[10px] text-muted uppercase font-bold py-0.5 border-b border-hairline shrink-0">
-              {WEEK_DAYS.map((d) => (
-                <div key={d}>{d}</div>
-              ))}
-            </div>
+            {/* Day Number header row + 6 week rows rendered together for colour banding */}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {/* Weekday Names */}
+              <div className="grid grid-cols-7 text-center font-mono text-[11px] text-muted uppercase font-bold py-1.5 border-b border-hairline shrink-0 bg-void">
+                {WEEK_DAYS.map((d) => (
+                  <div key={d}>{d}</div>
+                ))}
+              </div>
 
-            {/* Large Blueprint 42-Cell Calendar Grid — 6 rows evenly fitting container */}
-            <div className="grid grid-cols-7 grid-rows-6 gap-1 flex-1 min-h-0 h-full overflow-hidden">
-              {currentMonthDays.map((cd, idx) => {
-                const isSelected = cd.dateStr === selectedDate;
-                const isToday = cd.dateStr === todayString();
-
-                return (
-                  <button
-                    key={`${cd.dateStr}-${idx}`}
-                    type="button"
-                    onClick={() => handleSelectDay(cd.dateStr)}
-                    className={`relative p-1 flex flex-col items-start justify-start font-mono text-xs transition-all border text-left overflow-hidden h-full ${
-                      isSelected
-                        ? "bg-[#68D391] text-black font-extrabold border-2 border-black shadow-[2px_2px_0px_#000] z-10"
-                        : isToday
-                          ? "bg-elevated font-bold text-fg border-2 border-fg"
-                          : cd.isCurrentMonth
-                            ? "bg-void text-fg border-hairline hover:border-fg hover:bg-elevated"
-                            : "bg-void/40 text-muted/40 border-hairline/40 hover:bg-elevated"
-                    }`}
+              {/* 6 week rows, each with its own background tint */}
+              <div className="flex-1 flex flex-col min-h-0 gap-px bg-hairline">
+                {Array.from({ length: 6 }, (_, weekIdx) => (
+                  <div
+                    key={weekIdx}
+                    className="flex-1 grid grid-cols-7 gap-px bg-hairline min-h-0"
+                    style={{ background: undefined }}
                   >
-                    <div className="w-full flex items-center justify-between">
-                      <span className={`text-[11px] font-bold leading-none ${isSelected ? "text-black" : ""}`}>
-                        {cd.dayNumber}
-                      </span>
-                      {cd.items.length > 0 && !isSelected && (
-                        <span className="size-1.5 rounded-full bg-[#FF3366]" />
-                      )}
-                    </div>
+                    {currentMonthDays.slice(weekIdx * 7, weekIdx * 7 + 7).map((cd, dayIdx) => {
+                      const isSelected = cd.dateStr === selectedDate;
+                      const isToday    = cd.dateStr === todayString();
+                      const isWeekend  = dayIdx === 0 || dayIdx === 6;
 
-                    {/* Event Chips within Day Cell */}
-                    <div className="w-full mt-0.5 space-y-0.5 overflow-hidden">
-                      {cd.items.slice(0, 2).map((item) => {
-                        const meta = KIND_META[item.kind] ?? KIND_META.event;
-                        return (
-                          <div
-                            key={item.id}
-                            className={`w-full truncate text-[9px] px-1 py-0.2 rounded-none font-mono flex items-center gap-1 leading-tight ${
-                              isSelected
-                                ? "bg-black text-white font-bold"
-                                : "bg-obsidian border border-hairline text-fg"
-                            }`}
-                            title={`${item.title} (${clockTime(item.start_ts)})`}
-                          >
-                            <span
-                              className="size-1 rounded-full shrink-0"
-                              style={{ background: isSelected ? "#68D391" : meta.dot }}
-                            />
-                            <span className="truncate">{item.title}</span>
-                          </div>
-                        );
-                      })}
-                      {cd.items.length > 2 && (
-                        <div
-                          className={`text-[8px] font-bold px-0.5 leading-none ${
-                            isSelected ? "text-black" : "text-muted"
+                      return (
+                        <button
+                          key={`${cd.dateStr}-${weekIdx}-${dayIdx}`}
+                          type="button"
+                          onClick={() => handleSelectDay(cd.dateStr, true)}
+                          style={{ background: isSelected ? "#DDD6FE" : WEEK_ROW_TINTS[weekIdx] }}
+                          className={`relative flex flex-col items-start justify-start p-1.5 transition-all text-left group h-full cursor-pointer ${
+                            isSelected
+                              ? "ring-2 ring-purple-500 ring-inset z-10 shadow-xs"
+                              : isToday
+                                ? "ring-2 ring-fg ring-inset"
+                                : "hover:brightness-95"
+                          } ${
+                            !cd.isCurrentMonth ? "opacity-40" : ""
                           }`}
+                          title={`Click to add event to ${cd.dateStr}`}
                         >
-                          +{cd.items.length - 2} more
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+                          {/* Day Number and hover + indicator */}
+                          <div className="flex items-center justify-between w-full mb-1">
+                            <span
+                              className={`text-[15px] font-bold leading-none ${
+                                isSelected
+                                  ? "text-fg"
+                                  : isToday
+                                    ? "text-fg underline underline-offset-2 decoration-2"
+                                    : isWeekend
+                                      ? "text-muted"
+                                      : "text-fg"
+                              }`}
+                            >
+                              {cd.dayNumber}
+                            </span>
+                            <span
+                              className={`opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-bold px-1 py-0.5 rounded leading-none ${
+                                isSelected ? "bg-fg text-void" : "bg-fg text-void"
+                              }`}
+                              title="Add event to this date"
+                            >
+                              + Add
+                            </span>
+                          </div>
+
+                          {/* Event chips (up to 2 visible) */}
+                          <div className="w-full space-y-0.5 overflow-hidden">
+                            {cd.items.slice(0, 2).map((item) => {
+                              const meta = KIND_META[item.kind] ?? KIND_META.event;
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="w-full truncate text-[9px] px-1 py-px rounded font-semibold leading-tight flex items-center gap-1"
+                                  style={{
+                                    background: isSelected ? "rgba(0,0,0,0.08)" : meta.bg,
+                                    color: isSelected ? "var(--color-fg)" : meta.text,
+                                  }}
+                                  title={item.title}
+                                >
+                                  <span
+                                    className="size-1 rounded-full shrink-0"
+                                    style={{ background: isSelected ? "var(--color-fg)" : meta.dot }}
+                                  />
+                                  <span className="truncate">{item.title}</span>
+                                </div>
+                              );
+                            })}
+                            {cd.items.length > 2 && (
+                              <div
+                                className="text-[8px] font-bold px-1"
+                                style={{ color: isSelected ? "rgba(255,255,255,0.8)" : "var(--color-muted)" }}
+                              >
+                                +{cd.items.length - 2} more
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Right: Selected Date Schedule, Agenda & Quick Add */}
-          <div className="panel bg-obsidian border-2 border-fg p-4 shadow-[4px_4px_0px_#000] flex flex-col min-h-0 h-full overflow-hidden">
+          <div className="panel bg-void border border-hairline rounded-xl p-4 flex flex-col min-h-0 h-full overflow-hidden">
             {/* Date Header */}
-            <div className="border-b-2 border-hairline pb-3 shrink-0">
+            <div className="border-b border-hairline pb-3 shrink-0">
               <div className="flex items-center justify-between">
-                <p className="type-mono text-xs text-muted tracking-widest uppercase font-bold">
-                  {dateInfo.isToday ? "TODAY" : "SELECTED DATE"}
-                </p>
-                {showAddForm && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAddForm(false)}
-                    className="type-mono text-xs font-bold text-dim hover:text-fg uppercase"
-                  >
-                    ✕ Close Form
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {dateInfo.isToday && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-agent-chain bg-agent-chain/10 border border-agent-chain/30 rounded-full px-2 py-0.5">
+                      <span className="size-1.5 rounded-full bg-agent-chain animate-pulse" />
+                      Today
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !showAddForm;
+                    setShowAddForm(next);
+                    if (next) {
+                      setTimeout(() => {
+                        const input = document.getElementById("cal-title");
+                        if (input) input.focus();
+                      }, 50);
+                    }
+                  }}
+                  className={`btn text-xs font-semibold px-3 py-1 rounded-lg border transition-all cursor-pointer ${
+                    showAddForm
+                      ? "border-hairline bg-void text-dim hover:text-fg"
+                      : "btn-primary"
+                  }`}
+                >
+                  {showAddForm ? "✕ Close Form" : "+ Add Event"}
+                </button>
               </div>
 
-              <h2 className="type-display text-[28px] sm:text-[34px] leading-tight text-fg font-extrabold mt-1">
+              <h2 className="type-display text-[32px] sm:text-[38px] leading-none text-fg font-extrabold mt-2">
                 {dateInfo.numeric}
               </h2>
-              <p className="text-xs text-dim font-medium mt-0.5">
+              <p className="text-xs text-dim font-medium mt-1">
                 {dateInfo.full}
               </p>
             </div>
 
             {/* Quick Add Event Form */}
             {showAddForm && (
-              <div className="p-4 bg-void border-2 border-fg space-y-3 shadow-[2px_2px_0px_#000] animate-slide-in">
-                <span className="type-mono text-[11px] font-bold uppercase text-fg block border-b border-hairline pb-1">
-                  New Event / Schedule
-                </span>
+              <div className="p-3.5 bg-obsidian/40 border border-hairline rounded-xl space-y-3 shrink-0 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-hairline pb-1.5">
+                  <span className="type-mono text-[11px] font-bold uppercase text-fg flex items-center gap-1.5">
+                    <span className="size-1.5 rounded-full bg-ok" />
+                    <span>Add to {dateInfo.numeric}</span>
+                  </span>
+                  <span className="type-mono text-[10px] text-muted">Press Enter to save</span>
+                </div>
 
                 <div>
                   <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="cal-title">
-                    Event Title
+                    Event Title *
                   </label>
                   <input
                     id="cal-title"
                     type="text"
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newTitle.trim()) {
+                        e.preventDefault();
+                        void handleCreateEvent();
+                      }
+                    }}
                     placeholder="e.g. Physics Revision, Math Exam, Team Sync"
-                    className="w-full bg-obsidian border-2 border-hairline focus:border-fg p-2 text-xs font-medium outline-none text-fg"
+                    className="w-full bg-obsidian border-2 border-hairline focus:border-fg p-2 text-xs font-medium outline-none text-fg rounded"
+                    autoFocus
                   />
+                </div>
+
+                {/* Category Pills */}
+                <div>
+                  <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1">
+                    Event Category
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(["event", "revision", "deadline", "exam"] as const).map((k) => {
+                      const meta = KIND_META[k];
+                      const isSelectedKind = newKind === k;
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => setNewKind(k)}
+                          className={`py-1 px-1 rounded text-[10px] font-mono font-bold uppercase transition-all flex items-center justify-center gap-1 cursor-pointer border ${
+                            isSelectedKind
+                              ? "bg-fg text-void border-fg shadow-xs"
+                              : "bg-void text-dim border-hairline hover:text-fg hover:border-fg/40"
+                          }`}
+                        >
+                          <span
+                            className="size-1.5 rounded-full shrink-0"
+                            style={{ background: isSelectedKind ? "currentColor" : meta.dot }}
+                          />
+                          <span className="truncate">{meta.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -489,7 +609,7 @@ export function CalendarScreen() {
                       type="time"
                       value={newStartTime}
                       onChange={(e) => setNewStartTime(e.target.value)}
-                      className="w-full bg-obsidian border-2 border-hairline p-1.5 text-xs text-fg font-mono outline-none"
+                      className="w-full bg-obsidian border-2 border-hairline p-1.5 text-xs text-fg font-mono outline-none rounded"
                     />
                   </div>
                   <div>
@@ -501,26 +621,9 @@ export function CalendarScreen() {
                       type="time"
                       value={newEndTime}
                       onChange={(e) => setNewEndTime(e.target.value)}
-                      className="w-full bg-obsidian border-2 border-hairline p-1.5 text-xs text-fg font-mono outline-none"
+                      className="w-full bg-obsidian border-2 border-hairline p-1.5 text-xs text-fg font-mono outline-none rounded"
                     />
                   </div>
-                </div>
-
-                <div>
-                  <label className="type-mono block text-[10px] font-bold text-muted uppercase mb-1" htmlFor="cal-kind">
-                    Type
-                  </label>
-                  <select
-                    id="cal-kind"
-                    value={newKind}
-                    onChange={(e) => setNewKind(e.target.value as any)}
-                    className="w-full bg-obsidian border-2 border-hairline p-2 text-xs text-fg font-mono outline-none"
-                  >
-                    <option value="event">Event / Meeting</option>
-                    <option value="revision">Revision Block</option>
-                    <option value="deadline">Deadline</option>
-                    <option value="exam">Exam</option>
-                  </select>
                 </div>
 
                 <div>
@@ -532,8 +635,14 @@ export function CalendarScreen() {
                     type="text"
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newTitle.trim()) {
+                        e.preventDefault();
+                        void handleCreateEvent();
+                      }
+                    }}
                     placeholder="Notes or location..."
-                    className="w-full bg-obsidian border-2 border-hairline focus:border-fg p-2 text-xs font-medium outline-none text-fg"
+                    className="w-full bg-obsidian border-2 border-hairline focus:border-fg p-2 text-xs font-medium outline-none text-fg rounded"
                   />
                 </div>
 
@@ -541,7 +650,7 @@ export function CalendarScreen() {
                   <button
                     type="button"
                     onClick={() => setShowAddForm(false)}
-                    className="btn bg-obsidian border border-hairline px-3 py-1.5 text-xs uppercase"
+                    className="btn bg-void border border-hairline px-3 py-1.5 text-xs rounded-lg cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -549,9 +658,9 @@ export function CalendarScreen() {
                     type="button"
                     onClick={handleCreateEvent}
                     disabled={!newTitle.trim() || savingEvent}
-                    className="btn bg-[#68D391] text-black border-2 border-black shadow-[2px_2px_0px_#000] px-4 py-1.5 text-xs font-extrabold uppercase hover:brightness-95"
+                    className="btn btn-primary px-4 py-1.5 text-xs font-semibold rounded-lg cursor-pointer"
                   >
-                    {savingEvent ? "Saving..." : "Save Event"}
+                    {savingEvent ? "Saving…" : "Save Event"}
                   </button>
                 </div>
               </div>
@@ -579,17 +688,17 @@ export function CalendarScreen() {
                   ))}
                 </div>
               ) : selectedEvents.length === 0 ? (
-                <div className="p-8 text-center border-2 border-dashed border-hairline">
-                  <p className="type-display text-base text-fg mb-1">
+                <div className="p-8 text-center border border-dashed border-hairline rounded-xl">
+                  <p className="text-[13px] font-semibold text-fg mb-1">
                     No events scheduled
                   </p>
                   <p className="type-mono text-xs text-muted max-w-xs mx-auto mb-4">
-                    This day is currently open. Ask the agent or click below to schedule revision or events.
+                    This day is open. Ask the agent or click below to add an event.
                   </p>
                   <button
                     type="button"
                     onClick={() => setShowAddForm(true)}
-                    className="btn bg-[#2D3748] text-white hover:bg-black text-xs px-5 py-2 border-2 border-black shadow-[3px_3px_0px_#000] font-bold uppercase tracking-wider"
+                    className="btn btn-primary text-xs px-5 py-2 rounded-lg font-semibold"
                   >
                     + Add Event
                   </button>
@@ -600,23 +709,24 @@ export function CalendarScreen() {
                   return (
                     <div
                       key={e.id}
-                      className="p-3 bg-void border-2 border-fg shadow-[3px_3px_0px_#000] space-y-1.5 group"
+                      className="p-3 rounded-xl space-y-1.5 group hover:brightness-105 transition-all"
+                      style={{ background: meta.bg, borderLeft: `3px solid ${meta.dot}` }}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span
-                          className="type-mono text-[9px] font-extrabold uppercase px-1.5 py-0.5 border border-black"
+                          className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full"
                           style={{ background: meta.dot, color: "#000" }}
                         >
                           {meta.label}
                         </span>
                         <div className="flex items-center gap-2">
-                          <span className="type-mono text-[11px] font-bold text-fg">
+                          <span className="type-mono text-[11px] font-bold" style={{ color: meta.text }}>
                             {clockTime(e.start_ts)} – {clockTime(e.end_ts)}
                           </span>
                           <button
                             type="button"
                             onClick={() => removeEvent(e.id)}
-                            className="text-xs text-muted hover:text-danger font-bold ml-1"
+                            className="text-xs text-muted hover:text-danger font-bold ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Delete event"
                           >
                             ✕
@@ -624,7 +734,7 @@ export function CalendarScreen() {
                         </div>
                       </div>
 
-                      <h4 className="text-xs font-bold text-fg leading-snug">
+                      <h4 className="text-[13px] font-bold text-fg leading-snug">
                         {e.title}
                       </h4>
 
@@ -635,9 +745,9 @@ export function CalendarScreen() {
                       )}
 
                       {e.source && e.source !== "local" && (
-                        <div className="pt-1">
+                        <div className="pt-0.5">
                           <span className="type-mono text-[9px] text-muted uppercase">
-                            Source: {e.source}
+                            via {e.source}
                           </span>
                         </div>
                       )}
@@ -650,7 +760,7 @@ export function CalendarScreen() {
                   <button
                     type="button"
                     onClick={() => setShowAddForm(true)}
-                    className="btn w-full bg-void hover:bg-elevated text-xs py-2 border-2 border-hairline font-bold uppercase tracking-wider text-dim hover:text-fg transition-colors"
+                    className="btn w-full bg-void hover:bg-obsidian/30 text-xs py-2 border border-hairline rounded-lg font-semibold text-dim hover:text-fg transition-colors"
                   >
                     + Add Event
                   </button>
@@ -662,36 +772,36 @@ export function CalendarScreen() {
       ) : (
         /* 12-MONTH OVERVIEW — Pressed to compact normal size for all 12 months */
         <div className="flex-1 flex flex-col space-y-4 min-h-0">
-          <div className="flex items-center justify-between border-b-2 border-hairline pb-2">
+          <div className="flex items-center justify-between border-b border-hairline pb-2 px-1">
             <div>
-              <span className="type-display text-xl font-extrabold text-fg uppercase">
-                {viewYear} FULL YEAR AT A GLANCE
+              <span className="type-display text-xl font-bold text-fg">
+                {viewYear} — Full Year Overview
               </span>
               <p className="type-mono text-xs text-muted">
-                Click any month or date to zoom into full size
+                Click any month or date to zoom in
               </p>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setViewYear(viewYear - 1)}
-                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] px-3 py-1 text-xs font-bold"
+                className="btn bg-void border border-hairline rounded-lg px-3 py-1 text-xs font-semibold hover:bg-obsidian/40"
               >
                 ◀ {viewYear - 1}
               </button>
               <button
                 type="button"
                 onClick={() => setViewYear(viewYear + 1)}
-                className="btn bg-void border-2 border-black shadow-[2px_2px_0px_#000] px-3 py-1 text-xs font-bold"
+                className="btn bg-void border border-hairline rounded-lg px-3 py-1 text-xs font-semibold hover:bg-obsidian/40"
               >
                 {viewYear + 1} ▶
               </button>
               <button
                 type="button"
                 onClick={() => setExpandedYear(false)}
-                className="btn bg-[#68D391] text-black border-2 border-black shadow-[2px_2px_0px_#000] px-4 py-1 text-xs font-extrabold uppercase ml-2"
+                className="btn btn-primary px-4 py-1 text-xs font-semibold rounded-lg ml-2"
               >
-                Return to Month View
+                Month View
               </button>
             </div>
           </div>
@@ -704,8 +814,8 @@ export function CalendarScreen() {
               return (
                 <div
                   key={mName}
-                  className={`panel bg-obsidian border-2 p-3 shadow-[3px_3px_0px_#000] flex flex-col space-y-2 transition-colors ${
-                    isCurrentViewMonth ? "border-[#68D391]" : "border-fg"
+                  className={`panel bg-void border rounded-xl p-3 flex flex-col space-y-2 transition-colors ${
+                    isCurrentViewMonth ? "border-agent-chain shadow-sm" : "border-hairline"
                   }`}
                 >
                   {/* Month Card Header */}

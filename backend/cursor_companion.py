@@ -42,6 +42,11 @@ class CursorAccompanier:
         self._is_scrolling = False
         self._is_typing = False
         self._click_step = 0
+        self._step_count = 0
+        self._move_steps = 0
+        self._start_x = 400
+        self._start_y = 300
+        self._frame_count = 0
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -205,7 +210,8 @@ class CursorAccompanier:
         self._draw_overlay()
         
         # Reinforce TopMost to prevent being buried
-        if self._step_count % 10 == 0:
+        self._frame_count += 1
+        if self._frame_count % 15 == 0:
             self._root.attributes("-topmost", True)
 
         if self._running:

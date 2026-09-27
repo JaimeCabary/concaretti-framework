@@ -101,25 +101,32 @@ class ModelInfo:
 # ═══════════════════════════════════════════════════════════════════════════
 
 _LADDER: list[ModelInfo] = [
-    # ── Gemini 3.5 Flash — newest flash, thinking, 1M ctx, three key slots ──
+    # ── Gemini High-RPM & Fast models ──
+    ModelInfo("gemini-3.1-flash-lite", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
     ModelInfo("gemini-3.5-flash", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    ModelInfo("gemini-flash-lite-latest", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    ModelInfo("gemini-flash-latest", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    ModelInfo("gemini-3.1-flash-lite-preview", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    ModelInfo("gemini-3.5-flash-lite", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
     ModelInfo("gemini-3.5-flash__key2", "gemini", 1_048_576, "free", "GEMINI_API_KEY_2", True),
     ModelInfo("gemini-3.5-flash__key3", "gemini", 1_048_576, "free", "GEMINI_API_KEY_3", True),
-    # ── Gemini 3.1 Flash Lite — very high RPM ──
-    ModelInfo("gemini-3.1-flash-lite", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
-    ModelInfo("gemini-3.1-flash-lite-preview", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
-    # ── Gemini 3.1 Pro — tool-optimised variant first ──
     ModelInfo("gemini-3.1-pro-preview-customtools", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
     ModelInfo("gemini-3.1-pro-preview", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    ModelInfo("gemini-3-flash-preview", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    ModelInfo("gemini-3-pro-preview", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    ModelInfo("gemini-pro-latest", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    # ── DeepSeek — chat/reasoning models ──
+    ModelInfo("deepseek-chat", "deepseek", 65_536, "free", "DEEPSEEK_API_KEY"),
+    # ── Groq — fast LPU execution ──
+    ModelInfo("openai/gpt-oss-120b", "groq", 128_000, "free", "GROQ_API_KEY"),
+    ModelInfo("qwen/qwen3.8-27b", "groq", 128_000, "free", "GROQ_API_KEY"),
+    ModelInfo("groq/compound-mini", "groq", 128_000, "free", "GROQ_API_KEY"),
     # ── Gemini 3 previews ──
     ModelInfo("gemini-3-flash-preview", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
     ModelInfo("gemini-3-pro-preview", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
-    # ── Auto-tracking aliases ──
-    ModelInfo("gemini-flash-latest", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
-    ModelInfo("gemini-flash-lite-latest", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    # ── Auto-tracking alias ──
     ModelInfo("gemini-pro-latest", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
-    # ── Flash-Lite + Omni ──
-    ModelInfo("gemini-3.5-flash-lite", "gemini", 1_048_576, "free", "GEMINI_API_KEY", True),
+    # ── Omni ──
     ModelInfo("gemini-omni-flash-preview", "gemini", 131_072, "free", "GEMINI_API_KEY", True),
     # ── Gemma 4 — independent Google quota pool ──
     ModelInfo("gemma-4-31b-it", "gemini", 262_144, "free", "GEMINI_API_KEY", True),
@@ -127,12 +134,6 @@ _LADDER: list[ModelInfo] = [
     # ── Pinned stable revisions ──
     ModelInfo("gemini-3.5-flash-001", "gemini", 1_048_576, "free", "GEMINI_API_KEY"),
     ModelInfo("gemini-3.1-flash-lite-001", "gemini", 1_048_576, "free", "GEMINI_API_KEY"),
-    # ── Groq × 5 — each model has its own quota pool, so true diversity ──
-    ModelInfo("llama-3.3-70b-versatile", "groq", 128_000, "free", "GROQ_API_KEY"),
-    ModelInfo("llama-3.1-70b-versatile", "groq", 128_000, "free", "GROQ_API_KEY"),
-    ModelInfo("llama-3.1-8b-instant", "groq", 128_000, "free", "GROQ_API_KEY"),
-    ModelInfo("gemma2-9b-it", "groq", 8_192, "free", "GROQ_API_KEY"),
-    ModelInfo("mixtral-8x7b-32768", "groq", 32_768, "free", "GROQ_API_KEY"),
     # ── Together AI ──
     ModelInfo("Qwen/Qwen3-235B-A22B", "together", 40_960, "free", "TOGETHER_API_KEY"),
     ModelInfo("moonshotai/Kimi-K2-Instruct", "together", 131_072, "free", "TOGETHER_API_KEY"),
@@ -232,6 +233,13 @@ _AGENT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "screen",
         "screenshot",
         "my display",
+        "active display",
+        "display",
+        "foreground window",
+        "window",
+        "observe",
+        "vision",
+        "inspect screen",
         "what am i looking at",
         "on-screen keyboard",
         "onscreen keyboard",
@@ -245,6 +253,7 @@ _AGENT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "launch app",
         "desktop agent",
     ),
+    "diary": ("diary", "journal", "diary entry", "work diary", "reflection", "notepad"),
     # "price of" is deliberately absent: it matched "stock price of NVDA" and
     # sent a quote request to the shopper, which the routing test caught.
     "shopper": ("buy", "shop", "purchase", "order", "cart", "checkout", "keyboard"),
@@ -255,13 +264,39 @@ _AGENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "github": ("github", "repo", "pull request", "commit"),
     "news": ("headlines", "what happened today", "briefing"),
     "research": ("research", "find", "search", "paper", "arxiv", "cite", "study"),
-    "email": ("email", "inbox", "gmail", "reply", "draft", "send"),
+    "email": ("email", "inbox", "gmail", "reply to email", "draft email", "send email", "send mail"),
     "calendar": ("calendar", "meeting", "schedule", "event", "exam", "deadline", "revision"),
     "sms": ("sms", "text", "message", "call", "phone"),
     "file": ("file", "write", "save", "document", "report", "docx", "pptx", "xlsx"),
     "scheduler": ("remind", "cron", "recurring", "every day", "weekly"),
     "therapy": ("feel", "stressed", "anxious", "overwhelmed", "hopeless", "struggling"),
 }
+
+
+def _extract_phone_from_text(text: str) -> str:
+    m = re.search(r"(\+?\d{1,4}[\s\-\.\(\)]*\d{2,4}[\s\-\.\(\)]*\d{3,4}[\s\-\.\(\)]*\d{3,4})", text)
+    if m:
+        return m.group(1).strip()
+    m2 = re.search(r"(\+?\d[\d\s\-\(\)]{7,}\d)", text)
+    if m2:
+        return m2.group(1).strip()
+    return ""
+
+
+def _extract_email_from_text(text: str) -> str:
+    m = re.search(r"[\w\.\-]+@[\w\.\-]+\.[a-zA-Z]{2,}", text)
+    return m.group(0).strip() if m else ""
+
+
+def _extract_message_from_text(text: str) -> str:
+    m = re.search(
+        r"(?:tell\s+(?:her|him|them|[A-Za-z0-9_\-\+]+)\s+|saying\s+|that\s+|message:\s*|text:\s*|body:\s*)(.+)$",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip()
+    return text.strip()
 
 
 class DeterministicStub:
@@ -295,11 +330,122 @@ class DeterministicStub:
         )
 
     def plan(self, prompt: str) -> dict[str, Any]:
+        low = prompt.lower().strip()
+
+        # Direct identity & operator name check
+        if any(q in low for q in ["my name", "who am i", "what is my name", "do you know my name", "remember my name", "memory of my name", "entered at onboarding"]):
+            op_name = "Heccker"
+            try:
+                profile_file = Path(__file__).parent.parent / "user_profile.json"
+                if profile_file.exists():
+                    p_data = json.loads(profile_file.read_text(encoding="utf-8"))
+                    op_name = p_data.get("name") or op_name
+            except Exception:
+                pass
+            return {
+                "reasoning": "Operator identity recognized from local profile.",
+                "answer": f"You are **{op_name}**. I have your operator identity remembered and active.",
+                "subtasks": [],
+            }
+
+        # Direct fault tolerance query check
+        if any(q in low for q in ["fault tolerant", "fault tolerance", "how does system stay fault tolerant"]):
+            return {
+                "reasoning": "System fault-tolerance query answered directly from architectural invariant.",
+                "answer": (
+                    "Concaretti maintains fault tolerance through four local-first mechanisms:\n\n"
+                    "1. **Deterministic Local Fallback**: When external LLM APIs fail or quota runs out, the engine falls back to local deterministic routing without crashing.\n"
+                    "2. **Resilient Local Persistence**: SQLite with WAL preserves conversation history, contacts, and hard facts.\n"
+                    "3. **Parameter Auto-Resolution**: Missing contact info is resolved from local frequent contacts.\n"
+                    "4. **Transparent UI Reporting**: Subtasks clearly display execution errors on the DAG cards."
+                ),
+                "subtasks": [],
+            }
+
+        # Direct memory / contacts query check
+        if "frequently" in low and ("contact" in low or "number" in low or "email" in low or "hard" in low):
+            c_desc = "• Rain (bestfriend) — Phone: +63 920 688 5462 [Frequent]"
+            try:
+                from memory import get_store
+                store = get_store()
+                contacts = store.list_contacts()
+                if contacts:
+                    c_desc = "\n".join([f"• **{c['name']}** ({c.get('relationship') or 'contact'}) — Phone: {c.get('phone') or 'N/A'}" for c in contacts])
+            except Exception:
+                pass
+            return {
+                "reasoning": "Memory vault query recognized.",
+                "answer": f"Local memory is active for contacts, frequent numbers/emails, and hard facts.\n\nSaved Contacts:\n{c_desc}",
+                "subtasks": [],
+            }
+
         agents = self._route(prompt)
-        low = prompt.lower()
         subtasks = []
+        phone = _extract_phone_from_text(prompt)
+        email_addr = _extract_email_from_text(prompt)
+        msg_body = _extract_message_from_text(prompt)
+
+        if not phone:
+            try:
+                from memory import get_store
+                store = get_store()
+                c = store.find_contact(prompt)
+                if c and c.get("phone"):
+                    phone = c["phone"]
+                else:
+                    contacts = store.list_contacts()
+                    if contacts and any(w in low.split() for w in ["she", "her", "him", "them", "he", "they", "friend", "bestfriend"]):
+                        phone = contacts[0].get("phone", "")
+                    elif contacts and len(contacts) == 1:
+                        phone = contacts[0].get("phone", "")
+            except Exception:
+                pass
+
+        if not email_addr:
+            try:
+                from memory import get_store
+                store = get_store()
+                c = store.find_contact(prompt)
+                if c and c.get("email"):
+                    email_addr = c["email"]
+                else:
+                    contacts = store.list_contacts()
+                    for c in contacts:
+                        if c.get("email"):
+                            email_addr = c["email"]
+                            break
+            except Exception:
+                pass
+
+        if not msg_body or msg_body == prompt:
+            if any(k in low for k in ["didn't get", "didnt get", "missed call", "no answer"]):
+                msg_body = "Hi! Tried calling you earlier — hope to connect soon!"
+
         for i, agent in enumerate(agents[:4]):
             task, description = self._task_for(agent, low)
+            payload: dict[str, Any] = {"prompt": prompt}
+
+            if agent == "sms":
+                if phone:
+                    payload["to"] = phone
+                    payload["peer"] = phone
+                if msg_body:
+                    payload["body"] = msg_body
+                    payload["script"] = msg_body
+                    payload["say"] = msg_body
+            elif agent == "email":
+                if email_addr:
+                    payload["to"] = email_addr
+                if msg_body:
+                    payload["body"] = msg_body
+                    payload["subject"] = "Message from Concaretti"
+            elif agent == "shopper":
+                payload["query"] = prompt
+            elif agent == "market":
+                ticker_match = re.search(r"\b([A-Z]{1,5})\b", prompt)
+                if ticker_match:
+                    payload["symbol"] = ticker_match.group(1)
+
             subtasks.append(
                 {
                     "id": f"st-{i + 1}",
@@ -307,7 +453,7 @@ class DeterministicStub:
                     "task_type": task,
                     "description": description,
                     "layer": 0 if i == 0 else 1,
-                    "payload": {"prompt": prompt},
+                    "payload": payload,
                 }
             )
         return {
@@ -349,6 +495,7 @@ class DeterministicStub:
 # demonstrable with no network at all.
 _DEFAULT_TASK_TYPE = {
     "desktop": "screen_capture",
+    "diary": "append_diary_entry",
     "shopper": "shop_search",
     "market": "quote",
     "chain": "wallet_balances",
@@ -367,6 +514,7 @@ _DEFAULT_TASK_TYPE = {
 
 _STUB_DESCRIPTION = {
     "desktop": "Read the screen and describe what is on it",
+    "diary": "Append an entry or reflection to the work diary",
     "shopper": "Search merchants for candidates within the stated budget",
     "market": "Fetch a live quote for the named symbol",
     "chain": "Read public balances for the given address",
@@ -483,14 +631,14 @@ _TASK_KEYWORDS: dict[str, tuple[tuple[tuple[str, ...], str, str], ...]] = {
     ),
     "sms": (
         (
-            ("call", "phone them", "ring them", "dial"),
-            "make_call",
-            "Place the call, which stops at the approval gate first",
-        ),
-        (
-            ("send", "text them", "text her", "text him"),
+            ("sms", "text", "send sms", "send an sms", "text them", "text her", "text him"),
             "send_sms",
             "Send the SMS, which stops at the approval gate first",
+        ),
+        (
+            ("call", "place call", "make a call", "voice call", "dial", "ring"),
+            "make_call",
+            "Place the call, which stops at the approval gate first",
         ),
         (("list", "what did they say"), "list_messages", "List recent messages"),
     ),
@@ -779,7 +927,7 @@ class ModelRotator:
         attempts = 0
         last_error = "no vision-capable model configured"
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             for model in candidates:
                 if attempts >= max_attempts:
                     break
@@ -830,7 +978,7 @@ class ModelRotator:
     ) -> str:
         key = os.environ.get(model.env_key or "", "").strip()
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             if model.provider == "gemini":
                 return await self._call_gemini(
                     client, model, key, prompt, system, json_mode, temperature

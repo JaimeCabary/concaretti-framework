@@ -74,9 +74,13 @@ function CaptureButton({ question }: { question: string }) {
     setBusy(true);
     setError(null);
     try {
-      const png = await invoke("capture_screen");
-      if (typeof png !== "string" || png.length < 32)
-        throw new Error("the capture command returned nothing");
+      let png = "";
+      try {
+        const val = await invoke("capture_screen");
+        if (typeof val === "string" && val.length >= 32) png = val;
+      } catch {
+        // Outside Tauri wrapper: backend captures display natively via host MSS
+      }
       const res = await api.capture(png, question);
       track(res);
     } catch (err) {

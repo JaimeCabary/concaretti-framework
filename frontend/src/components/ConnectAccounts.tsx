@@ -12,6 +12,7 @@ import type {
   IntegrationField,
   IntegrationState,
   IntegrationStatus,
+  Role,
 } from "../types";
 import { Chip, Spinner } from "./ui";
 
@@ -157,11 +158,11 @@ export function ConnectAccounts({ onSaved, hideHeader }: { onSaved?: () => void;
     setTimeout(() => setNameSaved(false), 2000);
   };
 
-  const handleSwitchRole = async (nextRole: "public" | "student" | "staff") => {
+  const handleSwitchRole = async (nextRole: Role) => {
     if (nextRole === role || switchingRole) return;
     setSwitchingRole(true);
     try {
-      await api.login((useAgentStore.getState() as any).userName || "heccker", "");
+      await api.setRole(nextRole);
       await bootstrap();
     } finally {
       setSwitchingRole(false);
@@ -244,58 +245,59 @@ export function ConnectAccounts({ onSaved, hideHeader }: { onSaved?: () => void;
           OPERATOR PROFILE
         </h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
             <label
               htmlFor="operator-name-input"
-              className="type-mono block text-[10px] text-muted font-bold uppercase mb-1"
+              className="type-mono block text-[10px] text-muted font-bold uppercase mb-1.5"
             >
               Operator Name
             </label>
-            <div className="flex gap-2">
+            <div className="relative flex items-center">
               <input
                 id="operator-name-input"
                 type="text"
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
                 placeholder="What should agents call you?"
-                className="flex-1 rounded-xl text-sm bg-void border border-hairline focus:border-fg p-3 outline-none"
+                className="w-full rounded-xl text-[13px] bg-void border border-hairline focus:border-fg pl-3.5 pr-20 py-2.5 outline-none transition-colors"
               />
               <button
                 type="button"
                 onClick={handleSaveName}
-                className="bg-fg text-void hover:opacity-90 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-opacity"
+                className="absolute right-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold bg-elevated border border-hairline text-fg hover:bg-agent-orchestrator/30 hover:border-fg/40 transition-all cursor-pointer shadow-2xs"
               >
                 {nameSaved ? "Saved ✓" : "Save"}
               </button>
             </div>
-            <p className="text-[10px] text-muted mt-1">
+            <p className="text-[10px] text-muted mt-1.5">
               Used across agent dialogues and personal diary reflections.
             </p>
           </div>
 
           <div>
-            <span className="type-mono block text-[10px] text-muted font-bold uppercase mb-1">
+            <span className="type-mono block text-[10px] text-muted font-bold uppercase mb-1.5">
               Active Role Switcher
             </span>
-            <div className="flex gap-1.5 pt-0.5">
+            <div className="flex p-1 rounded-xl bg-void border border-hairline gap-1">
               {(["public", "student", "staff"] as const).map((r) => (
                 <button
                   key={r}
                   type="button"
                   disabled={switchingRole}
                   onClick={() => void handleSwitchRole(r)}
-                  className={`flex-1 py-2 rounded-xl text-[10px] font-bold uppercase border transition-all ${
+                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase transition-all cursor-pointer ${
                     role === r
-                      ? "bg-fg text-void border-fg shadow-sm"
-                      : "bg-void text-dim border-hairline hover:border-fg"
+                      ? "bg-elevated text-fg shadow-2xs border border-hairline"
+                      : "text-muted hover:text-fg border border-transparent"
                   }`}
                 >
                   {r}
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-muted mt-1">
+            <p className="text-[10px] text-muted mt-1.5">
               Switch surfaces to inspect policy differences.
             </p>
           </div>

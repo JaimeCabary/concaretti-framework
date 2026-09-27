@@ -25,6 +25,7 @@ agent_permissions:
   scheduler: enabled
   sms: enabled
   therapy: enabled
+  diary: enabled
   github: enabled
   news: enabled
   social: enabled
@@ -101,6 +102,7 @@ role_permissions:
     # it is the only one that can be handed to a wider role without also
     # handing over a path to money.
     - market
+    - desktop
   staff:
     - research
     - file

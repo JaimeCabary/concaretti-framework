@@ -50,6 +50,8 @@ export function ArtifactPanel({ compact: _compact = false }: { compact?: boolean
     <Panel
       title="Artifacts"
       accent="var(--color-study)"
+      collapsible
+      defaultOpen={true}
       actions={
         artifacts.length ? (
           <span className="text-[11px] text-muted">{artifacts.length}</span>

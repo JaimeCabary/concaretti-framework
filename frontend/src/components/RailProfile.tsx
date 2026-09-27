@@ -21,7 +21,7 @@ export function RailProfile({
     setOpen(false);
     if (targetRole === role) return;
     try {
-      await api.login((useAgentStore.getState() as any).userName || "heccker", "");
+      await api.setRole(targetRole);
       await bootstrap();
     } catch (e) {
       console.error("Failed to switch role:", e);
@@ -51,8 +51,8 @@ export function RailProfile({
     },
     public: {
       label: "PUBLIC",
-      desc: "Public guest & research access",
-      color: "var(--color-agent-memory, #98c379)",
+      desc: "Guest access & pending onboarding",
+      color: "var(--color-agent-news, #e5c07b)",
     },
   };
 
@@ -62,12 +62,12 @@ export function RailProfile({
         <>
           {/* Backdrop to close menu when clicking outside */}
           <div
-            className="fixed inset-0 z-40"
+            className="fixed inset-0 z-[998]"
             onClick={() => setOpen(false)}
           />
 
           <div
-            className="absolute bottom-full left-0 mb-2 w-64 rounded-xl border border-hairline bg-obsidian p-2 shadow-[0px_8px_32px_rgba(0,0,0,0.3)] z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
+            className="absolute bottom-full left-0 mb-2 w-64 rounded-xl border border-hairline bg-obsidian p-2 shadow-[0px_16px_48px_rgba(0,0,0,0.7)] z-[999] animate-in fade-in slide-in-from-bottom-2 duration-150"
             style={{ borderRadius: "12px" }}
           >
             {/* User Identity Header */}
@@ -131,7 +131,7 @@ export function RailProfile({
                 type="button"
                 onClick={() => {
                   setOpen(false);
-                  onNavigate?.("setup");
+                  onNavigate?.(role === "student" ? "settings" : "setup");
                 }}
                 className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12px] text-dim transition-colors hover:bg-elevated hover:text-fg flex items-center gap-2"
               >

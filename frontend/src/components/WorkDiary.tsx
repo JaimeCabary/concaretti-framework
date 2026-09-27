@@ -429,50 +429,85 @@ export function WorkDiary() {
           <div className="flex-1 min-h-0 panel bg-obsidian border-2 border-fg p-3 overflow-y-auto flex flex-col space-y-2">
             <div className="flex items-center justify-between border-b border-hairline pb-1.5 mb-1 shrink-0">
               <span className="type-mono text-[10px] text-muted uppercase tracking-wider font-bold">
-                {activeLeftTab === "calendar" ? `Entries on ${selectedDate}` : "Recent Entries"}
+                {activeLeftTab === "calendar" ? `Entries on ${selectedDate}` : `All Entries (${entries.length})`}
               </span>
             </div>
 
-            {selectedEntries.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
-                <p className="type-mono text-xs text-muted">
-                  No entries recorded for this date
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {selectedEntries.map((e) => {
-                  const isCurrent = editingEntryId === e.id;
-                  return (
-                    <div
-                      key={e.id}
-                      onClick={() => startEditEntry(e)}
-                      className={`p-2.5 bg-void border ${
-                        isCurrent ? "border-2 border-fg bg-elevated/80 shadow-2xs" : "border-hairline hover:border-fg"
-                      } cursor-pointer transition-colors space-y-1 text-left rounded`}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="type-mono text-[10px] text-muted">
-                          {e.day}
-                        </span>
-                        {e.agent_assisted ? (
-                          <span className="type-mono text-[8px] bg-info-soft text-info px-1 py-0.2 uppercase font-bold rounded">
-                            AI
-                          </span>
-                        ) : null}
+            {activeLeftTab === "calendar" ? (
+              // Calendar tab: show only entries for the selected date
+              selectedEntries.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
+                  <p className="type-mono text-xs text-muted">
+                    No entries recorded for this date
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {selectedEntries.map((e) => {
+                    const isCurrent = editingEntryId === e.id;
+                    return (
+                      <div
+                        key={e.id}
+                        onClick={() => startEditEntry(e)}
+                        className={`p-2.5 bg-void border ${
+                          isCurrent ? "border-2 border-fg bg-elevated/80 shadow-2xs" : "border-hairline hover:border-fg"
+                        } cursor-pointer transition-colors space-y-1 text-left rounded`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="type-mono text-[10px] text-muted">{e.day}</span>
+                          {e.agent_assisted ? (
+                            <span className="type-mono text-[8px] bg-info-soft text-info px-1 py-0.2 uppercase font-bold rounded">AI</span>
+                          ) : null}
+                        </div>
+                        <p className="text-xs font-bold text-fg truncate">{e.summary}</p>
+                        {e.reflection && (
+                          <p className="text-[11px] text-dim line-clamp-2">{e.reflection}</p>
+                        )}
                       </div>
-                      <p className="text-xs font-bold text-fg truncate">
-                        {e.summary}
-                      </p>
-                      {e.reflection && (
-                        <p className="text-[11px] text-dim line-clamp-2">
-                          {e.reflection}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : (
+              // All Entries tab: show every entry sorted newest-first
+              entries.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
+                  <p className="type-mono text-xs text-muted">
+                    No diary entries yet. Write your first entry!
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {[...entries]
+                    .sort((a, b) => b.day.localeCompare(a.day))
+                    .map((e) => {
+                      const isCurrent = editingEntryId === e.id;
+                      return (
+                        <div
+                          key={e.id}
+                          onClick={() => {
+                            handleSelectDay(e.day);
+                            startEditEntry(e);
+                          }}
+                          className={`p-2.5 bg-void border ${
+                            isCurrent ? "border-2 border-fg bg-elevated/80 shadow-2xs" : "border-hairline hover:border-fg"
+                          } cursor-pointer transition-colors space-y-1 text-left rounded`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="type-mono text-[10px] font-bold text-agent-chain">{e.day}</span>
+                            {e.agent_assisted ? (
+                              <span className="type-mono text-[8px] bg-info-soft text-info px-1 py-0.2 uppercase font-bold rounded">AI</span>
+                            ) : null}
+                          </div>
+                          <p className="text-xs font-bold text-fg truncate">{e.summary}</p>
+                          {e.reflection && (
+                            <p className="text-[11px] text-dim line-clamp-2">{e.reflection}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )
             )}
           </div>
         </div>

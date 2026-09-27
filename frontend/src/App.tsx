@@ -17,15 +17,16 @@
  * because the one endpoint that sets the cookie refuses off-loopback.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { HaloGate } from "./components/HaloGate";
 import { Onboarding } from "./components/Onboarding";
 import { LockScreen } from "./components/LockScreen";
 import { TutorialTour } from "./components/TutorialTour";
+import { Overlay } from "./components/Overlay";
 import { useAgentStore } from "./store/agentStore";
-import { PublicScreen } from "./screens/PublicScreen";
 import { StaffScreen } from "./screens/StaffScreen";
 import { StudentScreen } from "./screens/StudentScreen";
+import { PublicScreen } from "./screens/PublicScreen";
 
 
 function OfflineBanner() {
@@ -45,9 +46,53 @@ export function App() {
   const onboarded = useAgentStore((s) => s.onboarded);
   const bootstrap = useAgentStore((s) => s.bootstrap);
 
+  const [inAppOverlayOpen, setInAppOverlayOpen] = useState(false);
+
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Matches Ctrl+Shift+Space OR Ctrl+Alt+Space
+      const isSpace = e.code === "Space" || e.key === " ";
+      const isOverlayKey = isSpace && e.ctrlKey && (e.shiftKey || e.altKey);
+
+      if (isOverlayKey) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 1. If running inside Tauri desktop app, invoke the native overlay window
+        const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string) => Promise<unknown> } } }).__TAURI__;
+        if (tauri?.core?.invoke) {
+          void tauri.core.invoke("toggle_overlay").catch((err) => {
+            console.warn("[overlay] toggle_overlay invoke error:", err);
+          });
+        } else {
+          // 2. In browser / dev server mode without Tauri, toggle in-app overlay dialog
+          setInAppOverlayOpen((prev) => !prev);
+        }
+      } else if (e.key === "Escape" && inAppOverlayOpen) {
+        setInAppOverlayOpen(false);
+      }
+    };
+
+    const handleCustomToggle = () => {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string) => Promise<unknown> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        void tauri.core.invoke("toggle_overlay").catch(() => {});
+      } else {
+        setInAppOverlayOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("conca_toggle_overlay", handleCustomToggle);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("conca_toggle_overlay", handleCustomToggle);
+    };
+  }, [inAppOverlayOpen]);
 
   if (!roleLoaded) {
     return (
@@ -96,6 +141,23 @@ export function App() {
 
       {/* Interactive feature tour — only after onboarding is done */}
       {onboarded && <TutorialTour />}
+
+      {/* Browser-mode Overlay Modal (accessible via Ctrl+Shift+Space or Ctrl+Alt+Space) */}
+      {inAppOverlayOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="relative w-full max-w-[620px] shadow-2xl rounded-2xl overflow-hidden border border-hairline bg-obsidian">
+            <button
+              type="button"
+              onClick={() => setInAppOverlayOpen(false)}
+              className="absolute top-4 right-4 z-50 size-7 rounded-full bg-elevated/80 hover:bg-elevated text-dim hover:text-fg flex items-center justify-center text-xs font-bold border border-hairline shadow-xs cursor-pointer transition-colors"
+              title="Close Overlay (Esc or Ctrl+Shift+Space)"
+            >
+              ✕
+            </button>
+            <Overlay />
+          </div>
+        </div>
+      )}
     </>
   );
 }
